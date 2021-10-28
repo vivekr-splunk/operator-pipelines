@@ -5,6 +5,7 @@ on:  # yamllint disable-line rule:truthy
   push:
     branches:
       - main
+      - ISV-1108
   workflow_dispatch:
 
 jobs:
@@ -27,72 +28,77 @@ jobs:
           options: |
             --inventory inventory/operator-pipeline
             --extra-vars env=dev
+            --skip-tags ci
             --verbose
 
-  deploy-qa:
-    runs-on: ubuntu-latest
-    environment:
-      name: qa
-    steps:
-      - uses: actions/checkout@v1
-      - name: Install dependencies
-        run: |
-          pip install --user openshift
-      - name: Deploy qa environment
-        uses: dawidd6/action-ansible-playbook@v2
-        with:
-          playbook: playbooks/deploy.yml
-          directory: ./ansible
-          requirements: playbooks/requirements.yml
-          vault_password: ${{secrets.VAULT_PASSWORD}}
-          options: |
-            --inventory inventory/operator-pipeline
-            --extra-vars env=qa
-            --verbose
-
-  deploy-stage:
-    runs-on: ubuntu-latest
-    environment:
-      name: stage
-    needs:
-      - deploy-dev
-      - deploy-qa
-    steps:
-      - uses: actions/checkout@v1
-      - name: Install dependencies
-        run: |
-          pip install --user openshift
-      - name: Deploy stage environment
-        uses: dawidd6/action-ansible-playbook@v2
-        with:
-          playbook: playbooks/deploy.yml
-          directory: ./ansible
-          requirements: playbooks/requirements.yml
-          vault_password: ${{secrets.VAULT_PASSWORD}}
-          options: |
-            --inventory inventory/operator-pipeline
-            --extra-vars env=stage
-            --verbose
-
-  deploy-prod:
-    runs-on: ubuntu-latest
-    environment:
-      name: prod
-    needs:
-      - deploy-stage
-    steps:
-      - uses: actions/checkout@v1
-      - name: Install dependencies
-        run: |
-          pip install --user openshift
-      - name: Deploy prod environment
-        uses: dawidd6/action-ansible-playbook@v2
-        with:
-          playbook: playbooks/deploy.yml
-          directory: ./ansible
-          requirements: playbooks/requirements.yml
-          vault_password: ${{secrets.VAULT_PASSWORD}}
-          options: |
-            --inventory inventory/operator-pipeline
-            --extra-vars env=prod
-            --verbose
+#  deploy-qa:
+#    runs-on: ubuntu-latest
+#    environment:
+#      name: qa
+#    steps:
+#      - uses: actions/checkout@v1
+#      - name: Install dependencies
+#        run: |
+#          pip install --user openshift
+#      - name: Deploy qa environment
+#        uses: dawidd6/action-ansible-playbook@v2
+#        with:
+#          playbook: playbooks/deploy.yml
+#          directory: ./ansible
+#          requirements: playbooks/requirements.yml
+#          vault_password: ${{secrets.VAULT_PASSWORD}}
+#          options: |
+#            --inventory inventory/operator-pipeline
+#            --extra-vars env=qa
+#            --skip-tags ci
+#            --verbose
+#
+#  deploy-stage:
+#    runs-on: ubuntu-latest
+#    environment:
+#      name: stage
+#    needs:
+#      - deploy-dev
+#      - deploy-qa
+#    steps:
+#      - uses: actions/checkout@v1
+#      - name: Install dependencies
+#        run: |
+#          pip install --user openshift
+#      - name: Deploy stage environment
+#        uses: dawidd6/action-ansible-playbook@v2
+#        with:
+#          playbook: playbooks/deploy.yml
+#          directory: ./ansible
+#          requirements: playbooks/requirements.yml
+#          vault_password: ${{secrets.VAULT_PASSWORD}}
+#          options: |
+#            --inventory inventory/operator-pipeline
+#            --extra-vars env=stage
+#            --skip-tags ci
+#            --verbose
+#
+#  deploy-prod:
+#    runs-on: ubuntu-latest
+#    environment:
+#      name: prod
+#    needs:
+#      - deploy-stage
+#    steps:
+#      - uses: actions/checkout@v1
+#      - name: Install dependencies
+#        run: |
+#          pip install --user openshift
+#      - name: Deploy prod environment
+#        uses: dawidd6/action-ansible-playbook@v2
+#        with:
+#          playbook: playbooks/deploy.yml
+#          directory: ./ansible
+#          requirements: playbooks/requirements.yml
+#          vault_password: ${{secrets.VAULT_PASSWORD}}
+#          options: |
+#            --inventory inventory/operator-pipeline
+#            --extra-vars env=prod
+#            --skip-tags ci
+#            --verbose
+#

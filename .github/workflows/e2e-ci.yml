@@ -1,0 +1,30 @@
+---
+name: E2E-CI
+
+on:  # yamllint disable-line rule:truthy
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy-e2e-env:
+    runs-on: ubuntu-latest
+    environment:
+      name: dev
+    steps:
+      - uses: actions/checkout@v1
+      - name: Install dependencies
+        run: |
+          pip install --user openshift
+      - name: Deploy dev environment
+        uses: dawidd6/action-ansible-playbook@v2
+        with:
+          playbook: playbooks/deploy.yml
+          directory: ./ansible
+          requirements: playbooks/requirements.yml
+          vault_password: ${{secrets.VAULT_PASSWORD}}
+          options: |
+            --inventory inventory/operator-pipeline
+            --extra-vars env=dev
+            --verbose

@@ -356,3 +356,20 @@
 - include: tasks/webhook-event-listener.yml
 - include: tasks/webhook-hosted-pipeline-trigger.yml
 - include: tasks/webhook-release-pipeline-trigger.yml
+
+
+# Deploying CI pipeline- with tag "never", to run it only if
+# explicitly desired (for E2E testS)
+- name: Deploy CI pipeline
+  block:
+    - name: Deploy CI pipeline
+      k8s:
+        state: present
+        apply: yes
+        namespace: "{{ oc_namespace }}"
+        definition: "{{ lookup('template', '{{ item }}') }}"
+      with_items:
+        - ../templates/openshift/pipelines/operator-ci-pipeline.yml
+
+  tags:
+    - ci
