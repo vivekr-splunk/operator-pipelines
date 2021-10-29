@@ -9,6 +9,13 @@ on:  # yamllint disable-line rule:truthy
   workflow_dispatch:
 
 jobs:
+  run-e2e:
+    runs-on: ubuntu-latest
+    environment:
+      name: dev
+    steps:
+      - name: test-tekton
+        run: tkn
   deploy-e2e-dev:
     runs-on: ubuntu-latest
     environment:
