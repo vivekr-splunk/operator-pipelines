@@ -14,11 +14,25 @@ jobs:
     environment:
       name: dev
     steps:
-      - name: test-tekton
+      - name: install-tkn
         run: |
           curl -LO https://github.com/tektoncd/cli/releases/download/v0.8.0/tkn_0.8.0_Linux_x86_64.tar.gz
           tar xvzf tkn_0.8.0_Linux_x86_64.tar.gz -C /usr/local/bin/
-          tkn
+      - name: run-pipeline
+        run: |
+          tkn pipeline start operator-ci-pipeline \
+            --param git_repo_url=git@github.com:redhat-openshift-ecosystem/operator-pipelines-test.git \
+            --param git_branch=main \
+            --param bundle_path=operators/kogito-operator/1.6.0-ok \
+            --param env=qa \
+            --param registry=quay.io \
+            --param image_namespace=redhat-isv \
+            --workspace name=pipeline,volumeClaimTemplateFile=templates/workspace-template.yml \
+            --workspace name=kubeconfig,secret=kubeconfig \
+            --workspace name=registry-credentials,secret=registry-dockerconfig-secret \
+            --workspace name=pyxis-api-key,secret=pyxis-api-secret \
+            --showlog
+
 #  deploy-e2e-dev:
 #    runs-on: ubuntu-latest
 #    environment:
