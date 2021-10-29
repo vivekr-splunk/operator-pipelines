@@ -17,7 +17,7 @@ jobs:
       - name: test-tekton
         run: |
           curl -LO https://github.com/tektoncd/cli/releases/download/v0.8.0/tkn_0.8.0_Linux_x86_64.tar.gz
-          tar xvzf tkn_0.8.0_Darwin_x86_64.tar.gz -C /usr/local/bin tkn
+          tar xvzf tkn_0.8.0_Linux_x86_64.tar.gz -C /usr/local/bin/
           tkn
 #  deploy-e2e-dev:
 #    runs-on: ubuntu-latest
