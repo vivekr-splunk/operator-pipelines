@@ -9,7 +9,7 @@ on:  # yamllint disable-line rule:truthy
   workflow_dispatch:
 
 jobs:
-  deploy-e2e-env:
+  deploy-e2e-dev:
     runs-on: ubuntu-latest
     environment:
       name: dev
@@ -18,8 +18,14 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --user openshift
-      - name: Install pipelines
-        run: |
-          cd ansible
-          echo -n ${{secrets.VAULT_PASSWORD}} > vault-password
-          bash init-custom-env.sh marcin-playground qa vault-password
+      - name: Deploy dev environment
+        uses: dawidd6/action-ansible-playbook@v2
+        with:
+          playbook: playbooks/deploy.yml
+          directory: ./ansible
+          requirements: playbooks/requirements.yml
+          vault_password: ${{secrets.VAULT_PASSWORD}}
+          options: |
+            --inventory inventory/operator-pipeline
+            --extra-vars env=dev custom=true namespace=marcin-playground
+            --verbose
