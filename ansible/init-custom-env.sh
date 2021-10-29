@@ -50,7 +50,7 @@ execute_playbook() {
     --vault-password-file vault-password \
     -e "namespace=$NAMESPACE" \
     -e "env=$ENV" \
-    -e "custom_name=user-custom-env"
+    -e "custom_var_location=user-custom-env"
 }
 
 main() {
