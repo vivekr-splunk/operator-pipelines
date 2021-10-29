@@ -30,7 +30,7 @@ spec:
       description: The namespace/organization all built images will be pushed to.
     - name: pipeline_image
       description: An image of operator-pipeline-images.
-      default: "quay.io/redhat-isv/operator-pipelines-images:v1.0.4"
+      default: "quay.io/redhat-isv/operator-pipelines-images:v1.0.5"
     - name: github_token_secret_name
       description: The name of the Kubernetes Secret that contains the GitHub token.
       default: github-bot-token
@@ -48,8 +48,8 @@ spec:
       optional: true
     - name: registry-credentials
     - name: registry-credentials-all
-      description: Registry access tokens that contain user provided tokens + tokens
-        that are provided through Red Hat Connect
+      description: Storage space for the result of merging certification project and
+        pipeline service account registry tokens.
     - name: pyxis-ssl-credentials
     - name: prow-kubeconfig
     - name: hydra-credentials
@@ -193,8 +193,13 @@ spec:
         - name: results
           workspace: results
 
-    # Merge user's registry tokens with the internal SA tokens that have
-    # access to internal registry
+    # Merge user's registry tokens with service account credentials
+    # used elsewhere by this pipeline.
+    #
+    # NOTE: The project credentials will always "win" if there is a
+    # matching registry entry in the registry-credentials workspace.
+    # For example, if the partner provides credentials to quay.io,
+    # our credentials for that registry will be omitted.
     - name: merge-registry-credentials
       runAfter:
         - get-cert-project-related-data
@@ -306,6 +311,23 @@ spec:
           workspace: repository
           subPath: src
 
+    - name: annotations-validation
+      runAfter:
+        - operator-validation
+      taskRef:
+        name: annotations-validation
+      params:
+        - name: pipeline_image
+          value: "$(params.pipeline_image)"
+        - name: bundle_path
+          value: "$(tasks.get-bundle-path.results.bundle_path)"
+        - name: package_name
+          value: "$(tasks.operator-validation.results.package_name)"
+      workspaces:
+        - name: source
+          workspace: repository
+          subPath: src
+
     - name: get-supported-versions
       runAfter:
         - reserve-operator-name
@@ -402,6 +424,7 @@ spec:
     - name: dockerfile-creation
       runAfter:
         - operator-validation
+        - annotations-validation
         - get-supported-versions
         - yaml-lint
         - verify-pinned-digest
@@ -437,7 +460,8 @@ spec:
           workspace: repository
           subPath: src
         - name: credentials
-          workspace: registry-credentials-all
+          # Do not use registry-credentials-all. Project creds may replace quay.io push creds.
+          workspace: registry-credentials
 
     - name: make-bundle-repo-public
       runAfter:
@@ -475,7 +499,8 @@ spec:
           workspace: repository
           subPath: index
         - name: credentials
-          workspace: registry-credentials-all
+          # Do not use registry-credentials-all. Project creds may replace quay.io push creds.
+          workspace: registry-credentials
 
     - name: build-index
       runAfter:
@@ -495,7 +520,8 @@ spec:
           workspace: repository
           subPath: src
         - name: credentials
-          workspace: registry-credentials-all
+          # Do not use registry-credentials-all. Project creds may replace quay.io push creds.
+          workspace: registry-credentials
 
     - name: make-index-repo-public
       runAfter:
@@ -569,6 +595,8 @@ spec:
       workspaces:
         - name: kubeconfig
           workspace: prow-kubeconfig
+        - name: credentials
+          workspace: registry-credentials-all
         - name: gpg-decryption-key
           workspace: preflight-decryption-key
         - name: output
@@ -613,23 +641,6 @@ spec:
           subPath: preflight-trigger
         - name: pyxis-ssl-credentials
           workspace: pyxis-ssl-credentials
-
-    # Query Hydra API for status of the pre-certification checklist
-    - name: query-publishing-checklist
-      runAfter:
-        - upload-artifacts
-      taskRef:
-        name: query-publishing-checklist
-      params:
-        - name: pipeline_image
-          value: "$(params.pipeline_image)"
-        - name: cert_project_id
-          value: "$(tasks.certification-project-check.results.certification_project_id)"
-        - name: connect_url
-          value: "$(tasks.set-env.results.connect_url)"
-      workspaces:
-        - name: hydra-credentials
-          workspace: hydra-credentials
 
     - name: get-ci-results
       runAfter:
@@ -711,10 +722,28 @@ spec:
         - name: pyxis-ssl-credentials
           workspace: pyxis-ssl-credentials
 
+    # Query Hydra API for status of the pre-certification checklist
+    - name: query-publishing-checklist
+      runAfter:
+        - link-pull-request
+        - verify-ci-results
+      taskRef:
+        name: query-publishing-checklist
+      params:
+        - name: pipeline_image
+          value: "$(params.pipeline_image)"
+        - name: cert_project_id
+          value: "$(tasks.certification-project-check.results.certification_project_id)"
+        - name: connect_url
+          value: "$(tasks.set-env.results.connect_url)"
+      workspaces:
+        - name: hydra-credentials
+          workspace: hydra-credentials
+
     # merge PR
     - name: merge-pr
       runAfter:
-        - verify-ci-results
+        - query-publishing-checklist
       taskRef:
         name: merge-pr
       params:
