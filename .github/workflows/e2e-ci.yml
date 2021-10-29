@@ -21,6 +21,5 @@ jobs:
       - name: Install pipelines
         run: |
           cd ansible
-          echo {{secrets.VAULT_PASSWORD}} | tr -d "\r" > vault-password
-          chmod +x vault-password
+          echo -n {{secrets.VAULT_PASSWORD}} | tr -d "\r" > vault-password
           bash init-custom-env.sh marcin-playground qa vault-password
