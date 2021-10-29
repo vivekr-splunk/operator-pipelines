@@ -14,7 +14,7 @@ umask 077
 
 NAMESPACE=$1
 ENV=$2
-SECRET=$(dirname "$0")/vaults/custom/ocp-token.yml
+SECRET=$(dirname "$0")/vaults/user-custom-env/ocp-token.yml
 PASSWD_FILE=./vault-password
 
 # Initialize the environment by creating the service account and giving for it admin permissions
@@ -28,7 +28,7 @@ initialize_environment() {
         --vault-password-file=$PASSWD_FILE \
         -e "namespace=$NAMESPACE" \
         -e "env=$ENV" \
-        -e "custom-name=user-custom-env" \
+        -e "custom_name=user-custom-env" \
         -e "ocp_host=`oc whoami --show-server`" \
         -e "ocp_token=`oc whoami -t`" \
         --tags init \
@@ -50,7 +50,7 @@ execute_playbook() {
     --vault-password-file vault-password \
     -e "namespace=$NAMESPACE" \
     -e "env=$ENV" \
-    -e "custom-name=user-custom-env"
+    -e "custom_name=user-custom-env"
 }
 
 main() {
