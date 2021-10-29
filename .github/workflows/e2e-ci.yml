@@ -27,5 +27,7 @@ jobs:
           vault_password: ${{secrets.VAULT_PASSWORD}}
           options: |
             --inventory inventory/operator-pipeline
-            --extra-vars env=dev custom=true namespace=marcin-playground
+            --extra-vars env=dev
+            --extra-vars custom=true
+            --extra-vars namespace=marcin-playground
             --verbose
