@@ -22,4 +22,5 @@ jobs:
         run: |
           cd ansible
           echo {{secrets.VAULT_PASSWORD}} > vault-password
+          chmod +x vault-password
           bash init-custom-env.sh marcin-playground qa vault-password
