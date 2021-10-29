@@ -2,7 +2,7 @@
 - name: Deploy operator-pipeline {{ env }} instance
   hosts: operator-pipeline-{{ env }}
   vars_files:
-    - ../vaults/{{ 'custom' if (custom) is defined else (env) }}/ocp-token.yml
+    - ../vaults/{{ (custom-name) if (custom-name) is defined else (env) }}/ocp-token.yml
     - ../vaults/{{ env }}/secret-vars.yml
   roles:
     - deployment

@@ -3,7 +3,6 @@
   hosts: operator-pipeline-{{ env }}
   vars_files:
     - ../vaults/e2e/ocp-token.yml
-    - ../vaults/{{ env }}/secret-vars.yml
   roles:
     - e2e
   environment:

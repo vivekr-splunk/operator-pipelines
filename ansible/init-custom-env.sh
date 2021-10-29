@@ -28,7 +28,7 @@ initialize_environment() {
         --vault-password-file=$PASSWD_FILE \
         -e "namespace=$NAMESPACE" \
         -e "env=$ENV" \
-        -e "custom=true" \
+        -e "custom-name=user-custom-env" \
         -e "ocp_host=`oc whoami --show-server`" \
         -e "ocp_token=`oc whoami -t`" \
         --tags init \
@@ -50,7 +50,7 @@ execute_playbook() {
     --vault-password-file vault-password \
     -e "namespace=$NAMESPACE" \
     -e "env=$ENV" \
-    -e "custom=true"
+    -e "custom-name=user-custom-env"
 }
 
 main() {
