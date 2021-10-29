@@ -15,26 +15,29 @@ jobs:
       name: dev
     steps:
       - name: test-tekton
-        run: tkn
-  deploy-e2e-dev:
-    runs-on: ubuntu-latest
-    environment:
-      name: dev
-    steps:
-      - uses: actions/checkout@v1
-      - name: Install dependencies
         run: |
-          pip install --user openshift
-      - name: Deploy dev environment
-        uses: dawidd6/action-ansible-playbook@v2
-        with:
-          playbook: playbooks/deploy.yml
-          directory: ./ansible
-          requirements: playbooks/requirements.yml
-          vault_password: ${{secrets.VAULT_PASSWORD}}
-          options: |
-            --inventory inventory/operator-pipeline
-            --extra-vars env=dev
-            --extra-vars custom_var_location=e2e
-            --extra-vars namespace=marcin-playground
-            --verbose
+          curl -LO https://github.com/tektoncd/cli/releases/download/v0.8.0/tkn_0.8.0_Darwin_x86_64.tar.gz
+          tar xvzf tkn_0.8.0_Darwin_x86_64.tar.gz -C /usr/local/bin tkn
+          tkn
+#  deploy-e2e-dev:
+#    runs-on: ubuntu-latest
+#    environment:
+#      name: dev
+#    steps:
+#      - uses: actions/checkout@v1
+#      - name: Install dependencies
+#        run: |
+#          pip install --user openshift
+#      - name: Deploy dev environment
+#        uses: dawidd6/action-ansible-playbook@v2
+#        with:
+#          playbook: playbooks/deploy.yml
+#          directory: ./ansible
+#          requirements: playbooks/requirements.yml
+#          vault_password: ${{secrets.VAULT_PASSWORD}}
+#          options: |
+#            --inventory inventory/operator-pipeline
+#            --extra-vars env=dev
+#            --extra-vars custom_var_location=e2e
+#            --extra-vars namespace=marcin-playground
+#            --verbose
