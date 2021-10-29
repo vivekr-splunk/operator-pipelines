@@ -21,4 +21,4 @@ jobs:
       - name: Install pipelines
         run: |
           cd ansible
-          bash init-custom-env.sh marcin-playground qa vault-password
+          bash init-custom-env.sh marcin-playground qa ${{secrets.VAULT_PASSWORD}}
