@@ -28,6 +28,6 @@ jobs:
           options: |
             --inventory inventory/operator-pipeline
             --extra-vars env=dev
-            --extra-vars custom-name=e2e
+            --extra-vars custom_name=e2e
             --extra-vars namespace=marcin-playground
             --verbose
