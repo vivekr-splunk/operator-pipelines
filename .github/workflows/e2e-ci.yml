@@ -9,16 +9,6 @@ on:  # yamllint disable-line rule:truthy
   workflow_dispatch:
 
 jobs:
-  install-tkn:
-    runs-on: ubuntu-latest
-    environment:
-      name: dev
-    steps:
-      - name: install-tkn
-        run: |
-          curl -LO https://github.com/tektoncd/cli/releases/download/v0.11.0/tkn_0.11.0_Linux_x86_64.tar.gz
-          tar xvzf tkn_0.11.0_Linux_x86_64.tar.gz -C /usr/local/bin/
-
   run-e2e:
     runs-on: ubuntu-latest
     environment:
