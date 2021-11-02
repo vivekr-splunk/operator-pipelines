@@ -5,7 +5,7 @@
        --param git_repo_url=git@github.com:redhat-openshift-ecosystem/operator-pipelines-test.git \
        --param git_branch=main \
        --param bundle_path=operators/kogito-operator/1.6.0-ok \
-       --param env=qa \
+       --param env=dev \
        --param registry=quay.io \
        --param image_namespace=redhat-isv \
        --workspace name=pipeline,volumeClaimTemplateFile=templates/workspace-template.yml \

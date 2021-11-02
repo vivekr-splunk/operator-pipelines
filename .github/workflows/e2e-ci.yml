@@ -32,7 +32,6 @@ jobs:
         uses: dawidd6/action-ansible-playbook@v2
         with:
           playbook: playbooks/e2e.yml
-          requirements: playbooks/requirements.yml
           vault_password: ${{secrets.VAULT_PASSWORD}}
           options: |
             --inventory inventory/operator-pipeline
