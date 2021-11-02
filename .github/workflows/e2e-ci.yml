@@ -16,8 +16,8 @@ jobs:
     steps:
       - name: install-tkn
         run: |
-          curl -LO https://github.com/tektoncd/cli/releases/download/v0.8.0/tkn_0.8.0_Linux_x86_64.tar.gz
-          tar xvzf tkn_0.8.0_Linux_x86_64.tar.gz -C /usr/local/bin/
+          curl -LO https://github.com/tektoncd/cli/releases/download/v0.11.0/tkn_0.11.0_Linux_x86_64.tar.gz
+          tar xvzf tkn_0.11.0_Linux_x86_64.tar.gz -C /usr/local/bin/
       - name: run-pipeline
         run: |
           tkn pipeline start operator-ci-pipeline \
