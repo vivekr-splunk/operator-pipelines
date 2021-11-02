@@ -1,6 +1,6 @@
 ---
-- name: Deploy operator-pipeline {{ env }} instance
-  hosts: operator-pipeline-{{ env }}
+- name: Deploy operator-pipeline e2e instance
+  hosts: operator-pipeline-dev
   vars_files:
     - ../vaults/e2e/ocp-token.yml
   roles:
