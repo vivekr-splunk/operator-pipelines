@@ -4,7 +4,7 @@ metadata:
   name: preflight-trigger
 spec:
   params:
-    - default: '4.8'
+    - default: '4.9'
       name: ocp_version
       type: string
     - default: trace
@@ -80,7 +80,7 @@ spec:
       script: |
           #!/usr/bin/env sh
 
-          if [ "$(params.skip)" ]; then
+          if [ "$(params.skip)" == "true" ]; then
               echo "Preflight testing has been skipped"
               exit 0
           fi
