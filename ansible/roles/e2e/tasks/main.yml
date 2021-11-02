@@ -8,7 +8,7 @@
        --param env=dev \
        --param registry=quay.io \
        --param image_namespace=redhat-isv \
-       --workspace name=pipeline,volumeClaimTemplateFile=templates/workspace-template.yml \
+       --workspace name=pipeline,volumeClaimTemplateFile=../templates/workspace-template.yml \
        --workspace name=kubeconfig,secret=kubeconfig \
        --workspace name=registry-credentials,secret=registry-dockerconfig-secret \
        --workspace name=pyxis-api-key,secret=pyxis-api-secret \
