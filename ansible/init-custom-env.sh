@@ -4,10 +4,8 @@
 #
 # As arguments, it expects environments for which the sa should be created
 #
-# ./init.sh dev stage prod
-#       creates the sa for dev, stage and prod environments
-# ./init.sh
-#       creates the sa for every environment (prod, stage, qa, dev)
+# ./init-custom-env.sh john-playground qa vault-password
+#       creates the pipeline QA resources in oc project john-playground, using file with ansible vault password named vault-password.
 
 set -euo pipefail
 umask 077
@@ -26,7 +24,7 @@ initialize_environment() {
 
     ansible-playbook -i inventory/operator-pipeline playbooks/deploy.yml \
         --vault-password-file=$PASSWD_FILE \
-        -e "namespace=$NAMESPACE" \
+        -e "oc_namespace=$NAMESPACE" \
         -e "env=$ENV" \
         -e "custom_name=user-custom-env" \
         -e "ocp_host=`oc whoami --show-server`" \
@@ -48,7 +46,7 @@ update_token() {
 execute_playbook() {
   ansible-playbook -i inventory/operator-pipeline playbooks/deploy.yml \
     --vault-password-file vault-password \
-    -e "namespace=$NAMESPACE" \
+    -e "oc_namespace=$NAMESPACE" \
     -e "env=$ENV" \
     -e "custom_var_location=user-custom-env"
 }
