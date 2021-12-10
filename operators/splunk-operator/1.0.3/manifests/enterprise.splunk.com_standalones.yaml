@@ -1275,7 +1275,8 @@ spec:
               serviceAccount:
                 description: ServiceAccount is the service account used by the pods
                   deployed by the CRD. If not specified uses the default serviceAccount
-                  for the namespace as per https://kubernetes.io/docs/tasks/configure-pod-container/configure-service-account/#use-the-default-service-account-to-access-the-api-server
+                  for the namespace as per 
+                  https://kubernetes.io/docs/tasks/configure-pod-container/configure-service-account/#use-the-default-service-account-to-access-the-api-server
                 type: string
               serviceTemplate:
                 description: ServiceTemplate is a template used to create Kubernetes
