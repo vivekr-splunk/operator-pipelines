@@ -1,4 +1,3 @@
-
 ---
 apiVersion: kudo.dev/v1beta1
 kind: TestSuite
