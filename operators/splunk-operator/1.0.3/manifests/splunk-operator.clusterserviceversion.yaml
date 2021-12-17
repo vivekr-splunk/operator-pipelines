@@ -492,17 +492,17 @@ spec:
                     memory: 200Mi
                 securityContext:
                   allowPrivilegeEscalation: false
-                volumeMounts:
-                - mountPath: /opt/splunk/appframework/
-                  name: app-staging
+                #volumeMounts:
+                #- mountPath: /opt/splunk/appframework/
+                #  name: app-staging
               securityContext:
                 runAsUser: 1000
               serviceAccountName: splunk-operator-controller-manager
               terminationGracePeriodSeconds: 10
-              volumes:
-              - name: app-staging
-                persistentVolumeClaim:
-                  claimName: splunk-operator-tmp-app-download
+              #volumes:
+              #- name: app-staging
+              #  persistentVolumeClaim:
+              #    claimName: splunk-operator-tmp-app-download
       permissions:
       - rules:
         - apiGroups:
