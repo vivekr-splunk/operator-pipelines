@@ -9,6 +9,7 @@ from urllib.parse import urljoin
 
 import html2text
 from operatorcert import pyxis, utils
+from operatorcert.logger import setup_logger
 
 LOGGER = logging.getLogger("operator-cert")
 
@@ -169,7 +170,7 @@ def create_repository(args: Any, project: Dict[str, Any]) -> Any:
         "protected_for_search": False,
         "registry": utils.get_registry_for_env(args.environment),
         "repository": repository,
-        "build_categories": ["Operator Bundle Image"],
+        "build_categories": ["Operator bundle"],
         "isv_pid": container.get("isv_pid"),
         "application_categories": container.get("application_categories", []),
         "includes_multiple_content_streams": False,
@@ -197,7 +198,7 @@ def main() -> None:  # pragma: no cover
     log_level = "INFO"
     if args.verbose:
         log_level = "DEBUG"
-    logging.basicConfig(level=log_level)
+    setup_logger(level=log_level)
 
     args.func(args)
 

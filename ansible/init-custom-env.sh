@@ -12,14 +12,19 @@ umask 077
 
 NAMESPACE=$1
 ENV=$2
+PIPELINE_IMAGE_TAG=${4:-released}
 SECRET=$(dirname "$0")/vaults/custom/ocp-token.yml
-PASSWD_FILE=./vault-password
+PASSWD_FILE=$3
+SUFFIX=${5:-foo}
 
 # Initialize the environment by creating the service account and giving for it admin permissions
 initialize_environment() {
     if [ ! -f $SECRET ]; then
         touch $SECRET
         echo "File $SECRET was not found, empty one was created"
+    else
+        echo '' > $SECRET
+        echo "New empty $SECRET was created"
     fi
 
     ansible-playbook -i inventory/operator-pipeline playbooks/deploy.yml \
@@ -29,6 +34,7 @@ initialize_environment() {
         -e "custom=true" \
         -e "ocp_host=`oc whoami --show-server`" \
         -e "ocp_token=`oc whoami -t`" \
+        -e "operator_pipeline_image_tag=$PIPELINE_IMAGE_TAG" \
         --tags init \
         -vvvv
 }
@@ -45,36 +51,19 @@ update_token() {
 # Install all the other resources (pipelines, tasks, secrets etc..)
 execute_playbook() {
   ansible-playbook -i inventory/operator-pipeline playbooks/deploy.yml \
-    --vault-password-file vault-password \
+    --vault-password-file=$PASSWD_FILE \
     -e "oc_namespace=$NAMESPACE" \
     -e "env=$ENV" \
-    -e "custom=true"
-}
-
-pull_parent_index() {
-  oc project $NAMESPACE
-  # Must be run once before certifying against the certified catalog.
-  oc import-image certified-operator-index \
-    --from=registry.redhat.io/redhat/certified-operator-index \
-    --reference-policy local \
-    --scheduled \
-    --confirm \
-    --all
-
-  # Must be run once before certifying against the Red Hat Martketplace catalog.
-  oc import-image redhat-marketplace-index \
-    --from=registry.redhat.io/redhat/redhat-marketplace-index \
-    --reference-policy local \
-    --scheduled \
-    --confirm \
-    --all
+    -e "ocp_host=`oc whoami --show-server`" \
+    -e "operator_pipeline_image_tag=$PIPELINE_IMAGE_TAG" \
+    -e "custom=true" \
+    -e "suffix=$SUFFIX"
 }
 
 main() {
   initialize_environment
   update_token
   execute_playbook
-  pull_parent_index
 }
 
 main

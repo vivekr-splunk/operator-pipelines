@@ -1,9 +1,11 @@
 import logging
 import os
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 from urllib.parse import urljoin
 
 import requests
+
+from operatorcert.utils import add_session_retries
 
 LOGGER = logging.getLogger("operator-cert")
 
@@ -20,11 +22,15 @@ def is_internal() -> bool:
     return cert and key
 
 
-def _get_session() -> requests.Session:
+def _get_session(pyxis_url: str, auth_required: bool = True) -> requests.Session:
     """
     Create a Pyxis http session with auth based on env variables.
 
-    Auth is set to use either API key or certificate + key.
+    Auth is optional and can be set to use either API key or certificate + key.
+
+    Args:
+        url (str): Pyxis API URL
+        auth_required (bool): Whether authentication should be required for the session
 
     Raises:
         Exception: Exception is raised when auth ENV variables are missing.
@@ -35,33 +41,42 @@ def _get_session() -> requests.Session:
     api_key = os.environ.get("PYXIS_API_KEY")
     cert = os.environ.get("PYXIS_CERT_PATH")
     key = os.environ.get("PYXIS_KEY_PATH")
-    env = os.environ.get("ENVIRONMENT")
 
     # Document about the proxy configuration:
     # https://source.redhat.com/groups/public/customer-platform-devops/digital_experience_operations_dxp_ops_wiki/using_squid_proxy_to_access_akamai_preprod_domains_over_vpn
     proxies = {}
-    # If it's external preprod
-    if env != "prod" and api_key:
+    # If it is external preprod
+    is_preprod = any(env in pyxis_url for env in ["dev", "qa", "stage"])
+    if is_preprod and api_key:
         proxies = {
             "http": "http://squid.corp.redhat.com:3128",
             "https": "http://squid.corp.redhat.com:3128",
         }
 
-    # API key or cert + key need to be provided using env variable
-    if not api_key and (not cert or not key):
-        raise Exception(
-            "No auth details provided for Pyxis. "
-            "Either define PYXIS_API_KEY or PYXIS_CERT_PATH + PYXIS_KEY_PATH"
-        )
-
     session = requests.Session()
+    add_session_retries(session)
 
-    if api_key:
-        LOGGER.debug("Pyxis session using API key is created")
-        session.headers.update({"X-API-KEY": api_key})
+    if auth_required:
+        if api_key:
+            LOGGER.debug("Pyxis session using API key is created")
+            session.headers.update({"X-API-KEY": api_key})
+        elif cert and key:
+            if os.path.exists(cert) and os.path.exists(key):
+                LOGGER.debug("Pyxis session using cert + key is created")
+                session.cert = (cert, key)
+            else:
+                raise Exception(
+                    "PYXIS_CERT_PATH or PYXIS_KEY_PATH does not point to a file that "
+                    "exists."
+                )
+        else:
+            # API key or cert + key need to be provided using env variable
+            raise Exception(
+                "No auth details provided for Pyxis. "
+                "Either define PYXIS_API_KEY or PYXIS_CERT_PATH + PYXIS_KEY_PATH"
+            )
     else:
-        LOGGER.debug("Pyxis session using cert + key is created")
-        session.cert = (cert, key)
+        LOGGER.debug("Pyxis session without authentication is created")
 
     if proxies:
         LOGGER.debug(
@@ -83,7 +98,7 @@ def post(url: str, body: Dict[str, Any]) -> Dict[str, Any]:
     Returns:
         Dict[str, Any]: Pyxis response
     """
-    session = _get_session()
+    session = _get_session(url)
 
     LOGGER.debug(f"POST Pyxis request: {url}")
     resp = session.post(url, json=body)
@@ -109,7 +124,7 @@ def put(url: str, body: Dict[str, Any]) -> Dict[str, Any]:
     Returns:
         Dict[str, Any]: Pyxis response
     """
-    session = _get_session()
+    session = _get_session(url)
 
     LOGGER.debug(f"PATCH Pyxis request: {url}")
     resp = session.put(url, json=body)
@@ -135,7 +150,7 @@ def patch(url: str, body: Dict[str, Any]) -> Dict[str, Any]:
     Returns:
         Dict[str, Any]: Pyxis response
     """
-    session = _get_session()
+    session = _get_session(url)
 
     LOGGER.debug(f"PATCH Pyxis request: {url}")
     resp = session.patch(url, json=body)
@@ -150,19 +165,24 @@ def patch(url: str, body: Dict[str, Any]) -> Dict[str, Any]:
     return resp.json()
 
 
-def get(url: str) -> Any:
+def get(
+    url: str, params: Optional[Dict[str, str]] = None, auth_required: bool = True
+) -> Any:
     """
     Pyxis GET request
 
     Args:
         url (str): Pyxis URL
+        params (dict): Additional query parameters
+        auth_required (bool): Whether authentication should be required for the session
 
     Returns:
         Any: Pyxis GET request response
     """
-    session = _get_session()
-    LOGGER.debug(f"GET Pyxis request: {url}")
-    resp = session.get(url)
+    session = _get_session(url, auth_required=auth_required)
+    LOGGER.debug(f"GET Pyxis request url: {url}")
+    LOGGER.debug(f"GET Pyxis request params: {params}")
+    resp = session.get(url, params=params)
     # Not raising exception for error statuses, because GET request can be used to check
     # if something exists. We don't want a 404 to cause failures.
 
@@ -180,7 +200,7 @@ def get_project(base_url: str, project_id: str) -> Dict[str, Any]:
     Returns:
         Dict[str, Any]: Pyxis project response
     """
-    session = _get_session()
+    session = _get_session(base_url)
 
     project_url = urljoin(base_url, f"v1/projects/certification/id/{project_id}")
     LOGGER.debug(f"Getting project details: {project_id}")
@@ -207,7 +227,7 @@ def get_vendor_by_org_id(base_url: str, org_id: str) -> Dict[str, Any]:
     Returns:
         Dict[str, Any]: Vendor Pyxis response
     """
-    session = _get_session()
+    session = _get_session(base_url)
 
     project_url = urljoin(base_url, f"v1/vendors/org-id/{org_id}")
     LOGGER.debug(f"Getting project details by org_id: {org_id}")
@@ -234,7 +254,7 @@ def get_repository_by_isv_pid(base_url: str, isv_pid: str) -> Dict[str, Any]:
     Returns:
         Dict[str, Any]: Repository Pyxis response
     """
-    session = _get_session()
+    session = _get_session(base_url)
 
     repo_url = urljoin(base_url, "v1/repositories")
     LOGGER.debug(f"Getting repository details by isv_pid: {isv_pid}")

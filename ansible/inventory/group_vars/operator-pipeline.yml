@@ -1,3 +1,4 @@
+---
 ##### General settings
 env: unset
 oc_namespace: "operator-pipeline-{{ env }}"
@@ -16,11 +17,13 @@ operator_pipeline_private_cert_local_path: ../../vaults/{{ env }}/operator-pipel
 
 operator_pipeline_kubeconfig_ocp_local_path: ../../vaults/{{ env }}/kubeconfig-ocp
 
-operator_pipeline_registry_token: ../../vaults/{{ env }}/dockerconfig.json
+operator_hosted_pipeline_registry_auth_path: ../../vaults/{{ env }}/registry-auth/hosted-pipeline.json
+operator_release_pipeline_registry_auth_pull_path: ../../vaults/{{ env }}/registry-auth/release-pipeline-pull.json
+operator_release_pipeline_registry_auth_push_path: ../../vaults/{{ env }}/registry-auth/release-pipeline-push.json
+operator_release_pipeline_registry_auth_serve_path: ../../vaults/{{ env }}/registry-auth/release-pipeline-serve.json
 
 operator_pipeline_kubeconfig_prow_local_path: ../../vaults/common/kubeconfig-prow
 operator_pipeline_github_bot_token: ../../vaults/common/github-bot-token.txt
-operator_pipeline_ibm_webhook_token_local_path: ../../vaults/common/nonprod-ibm-webhook-token
 
 operator_pipeline_hydra_username_local_path: ../../vaults/common/nonprod-hydra-username
 operator_pipeline_hydra_password_local_path: ../../vaults/common/nonprod-hydra-password
@@ -28,8 +31,28 @@ operator_pipeline_hydra_password_local_path: ../../vaults/common/nonprod-hydra-p
 operator_pipeline_preflight_decryption_key_private_local_path: ../../vaults/common/preflight-decryption-key-priv.gpg
 operator_pipeline_preflight_decryption_key_public_local_path: ../../vaults/common/preflight-decryption-key-pub.gpg
 
-operator_pipeline_exd_guild_isv_key_path: ../../vaults/common/exd-guild-isv.key
-operator_pipeline_exd_guild_isv_passphrase_path: ../../vaults/common/exd-guild-isv.passphrase
+operator_pipeline_exd_guild_isv_key_path: ../../vaults/{{ env }}/exd-guild-isv.key
+operator_pipeline_exd_guild_isv_passphrase_path: ../../vaults/{{ env }}/exd-guild-isv.passphrase
 
 github_ssh_credentials_path: ../../vaults/common/github-bot-ssh
 e2e_kubeconfig_path: ../../vaults/common/kubeconfig-e2e
+
+pyxis_api_key_path: ../../vaults/{{ env }}/pyxis_api_key
+e2e_gh_account_path: ../../vaults/{{ env }}/e2e-gh-account-pat
+
+pipelines_metrics_endpoint: http://pipeline-metrics.pipeline-metrics-nonprod
+
+community_signing_pipeline_name: community-signing-pipeline
+community_signing_pipeline_private_key_local_path: ../../vaults/{{ env }}/community-operator-signing-pipeline.key
+community_signing_pipeline_private_cert_local_path: ../../vaults/{{ env }}/community-operator-signing-pipeline.pem
+community_signing_umb_client_name: community-operator-signing-pipeline-nonprod
+
+community_signing_pipeline_route_name: "{{ community_signing_pipeline_name }}"
+community_signing_pipeline_url: "{{ community_signing_pipeline_name }}-tekton-{{ env }}.apps.pipelines-stage.0ce8.p1.openshiftapps.com"
+
+
+nginx_basic_user_file_local_path: ../../vaults/{{ env }}/htpasswd
+nginx_proxy_service_url: "https://{{ community_signing_pipeline_url }}"
+nginx_proxy_url: "{{ community_signing_pipeline_name }}-{{ env }}.apps.pipelines-stage.0ce8.p1.openshiftapps.com"
+
+signing_pub_key_local_path: ../../vaults/{{ env }}/sig-key.pub

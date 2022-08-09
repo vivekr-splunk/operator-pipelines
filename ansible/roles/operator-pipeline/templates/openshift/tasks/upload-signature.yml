@@ -1,0 +1,88 @@
+---
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: upload-signature
+spec:
+  params:
+    - name: signature_data_file
+      description: Json file containing the list of signature data to upload to Pyxis signature.
+    - name: pipeline_image
+      description: A docker image of operator-pipeline-images for the steps to run in.
+    - name: pyxis_ssl_secret_name
+      description: Kubernetes secret name that contains the Pyxis SSL files.
+    - name: pyxis_ssl_cert_secret_key
+      description: The key within the Kubernetes secret that contains the Pyxis SSL cert.
+    - name: pyxis_ssl_key_secret_key
+      description: The key within the Kubernetes secret that contains the Pyxis SSL key.
+    - name: pyxis_url
+      description: Pyxis instance to upload the signature to.
+      default: https://pyxis.engineering.redhat.com
+    - name: verify_signature
+      description: Whether to verify that the signature data is signed with the right key.
+      default: "true"
+    - name: signing_pub_secret_name
+      description: The name of the Kubernetes Secret that contains the public key for verifying signatures.
+      default: signing-pub-key
+    - name: signing_pub_secret_key
+      description: The key within the Kubernetes Secret that contains the public key for verifying signatures.
+      default: sig-key.pub
+  volumes:
+    - name: pyxis-ssl-volume
+      secret:
+        secretName: "$(params.pyxis_ssl_secret_name)"
+        optional: false
+    - name: signing-pub-key-volume
+      secret:
+        secretName: "$(params.signing_pub_secret_name)"
+        optional: true
+  workspaces:
+    - name: source
+  steps:
+    - name: verify-signature
+      image: "$(params.pipeline_image)"
+      volumeMounts:
+        - name: signing-pub-key-volume
+          readOnly: true
+          mountPath: "/etc/signing-pub-key-volume"
+      script: |
+        #! /usr/bin/env bash
+        set -xe
+
+        if [[ "$(params.verify_signature)" != "true" ]]; then
+          exit 0
+        fi
+
+        echo "Verifying signature before upload"
+        # Extract list of signed claims and loop through
+        SIGNED_CLAIMS=$(cat $(params.signature_data_file) | jq -r '.[].signed_claim')
+
+        gpg --import /etc/signing-pub-key-volume/$(params.signing_pub_secret_key)
+
+        for CLAIM in $SIGNED_CLAIMS; do
+          echo "$CLAIM" | base64 --decode > decoded_signed_claim
+          gpg --verify decoded_signed_claim
+        done
+      workingDir: $(workspaces.source.path)
+
+    - name: upload-signature
+      image: "$(params.pipeline_image)"
+      env:
+        - name: PYXIS_CERT_PATH
+          value: /etc/pyxis-ssl-volume/$(params.pyxis_ssl_cert_secret_key)
+        - name: PYXIS_KEY_PATH
+          value: /etc/pyxis-ssl-volume/$(params.pyxis_ssl_key_secret_key)
+      volumeMounts:
+        - name: pyxis-ssl-volume
+          readOnly: true
+          mountPath: "/etc/pyxis-ssl-volume"
+      script: |
+        #! /usr/bin/env bash
+        set -xe
+
+        echo "Signature verified. Uploading to Pyxis sigstore"
+        upload-signature \
+          --pyxis-url "$(params.pyxis_url)" \
+          --signature-data "$(params.signature_data_file)" \
+          --verbose
+      workingDir: $(workspaces.source.path)

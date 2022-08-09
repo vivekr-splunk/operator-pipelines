@@ -1,12 +1,12 @@
 import argparse
 import logging
+import os
+import time
+from datetime import datetime, timedelta
+from typing import Any, Dict, List
 
 from operatorcert import iib, utils
-from typing import Any, List
-import time
-import os
-from datetime import datetime, timedelta
-
+from operatorcert.logger import setup_logger
 
 LOGGER = logging.getLogger("operator-cert")
 
@@ -32,6 +32,11 @@ def setup_argparser() -> argparse.ArgumentParser:  # pragma: no cover
         help="List of indices the bundle supports, e.g --indices registry/index:v4.9 registry/index:v4.8",
     )
     parser.add_argument(
+        "--output",
+        default="manifest-digests.txt",
+        help="File name to output comma-separated list of manifest digests to.",
+    )
+    parser.add_argument(
         "--iib-url",
         default="https://iib.engineering.redhat.com",
         help="Base URL for IIB API",
@@ -41,14 +46,14 @@ def setup_argparser() -> argparse.ArgumentParser:  # pragma: no cover
     return parser
 
 
-def wait_for_results(iib_url: str, batch_id: int, timeout=30 * 60, delay=20) -> Any:
+def wait_for_results(iib_url: str, batch_id: int, timeout=60 * 60, delay=20) -> Any:
     """
     Wait for IIB build till it finishes
 
     Args:
         iib_url (Any): CLI arguments
         batch_id (int): IIB batch identifier
-        timeout ([type], optional): Maximum wait time. Defaults to 30*60.
+        timeout ([type], optional): Maximum wait time. Defaults to 60*60 (3600 seconds/1 hour)
         delay (int, optional): Delay between build pollin. Defaults to 20.
 
     Returns:
@@ -91,7 +96,11 @@ def wait_for_results(iib_url: str, batch_id: int, timeout=30 * 60, delay=20) -> 
 
 
 def publish_bundle(
-    from_index: str, bundle_pullspec: str, iib_url: str, index_versions: List[str]
+    from_index: str,
+    bundle_pullspec: str,
+    iib_url: str,
+    indices: List[str],
+    output: str,
 ) -> None:
     """
     Publish a bundle to index image using IIB
@@ -100,7 +109,8 @@ def publish_bundle(
         iib_url: url of IIB instance
         bundle_pullspec: bundle pullspec
         from_index: target index pullspec
-        index_versions: list of index versions (tags)
+        indices: list of original indices
+        output: file name to output resulting manifest digests to
     Raises:
         Exception: Exception is raised when IIB build fails
     """
@@ -110,6 +120,7 @@ def publish_bundle(
 
     payload = {"build_requests": []}
 
+    index_versions = parse_indices(indices)
     for version in index_versions:
         payload["build_requests"].append(
             {
@@ -129,6 +140,30 @@ def publish_bundle(
         [build.get("state") == "complete" for build in response["items"]]
     ):
         raise Exception("IIB build failed")
+    else:
+        extract_manifest_digests(indices, index_versions, output, response)
+
+
+def extract_manifest_digests(
+    indices: List[str],
+    index_versions: List[str],
+    output: str,
+    response: Dict[str, Any],
+):
+
+    LOGGER.info("Extracting manifest digests for signing...")
+    manifest_digests = []
+    # go through each version to ensure order is the same as the indices list
+    for i in range(0, len(index_versions)):
+        index = indices[i]
+        version = index_versions[i]
+        for build in response["items"]:
+            if build["index_image"].endswith(version):
+                digest = build["index_image_resolved"].split("@")[-1]
+                manifest_digests.append(f"{index}@{digest}")
+    with open(output, "w") as f:
+        f.write(",".join(manifest_digests))
+    LOGGER.info(f"Manifest digests written to output file {output}.")
 
 
 def parse_indices(indices: List[str]) -> List[str]:
@@ -163,12 +198,16 @@ def main() -> None:  # pragma: no cover
     log_level = "INFO"
     if args.verbose:
         log_level = "DEBUG"
-    logging.basicConfig(level=log_level)
+    setup_logger(level=log_level)
 
     utils.set_client_keytab(os.environ.get("KRB_KEYTAB_FILE", "/etc/krb5.krb"))
 
     publish_bundle(
-        args.from_index, args.bundle_pullspec, args.iib_url, parse_indices(args.indices)
+        args.from_index,
+        args.bundle_pullspec,
+        args.iib_url,
+        args.indices,
+        args.output,
     )
 
 

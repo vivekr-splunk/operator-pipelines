@@ -2,13 +2,19 @@
 name: validation
 
 on:  # yamllint disable-line rule:truthy
-  - push
-  - pull_request
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
 
 jobs:
-  linting:
+  tox:
+    name: Run unit tests and linters
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v1
-      - name: yaml-lint
-        uses: ibiqlik/action-yamllint@v3
+      - uses: actions/checkout@v2
+      - uses: fedora-python/tox-github-action@v0.4
+        with:
+          tox_env: black,test,yamllint
+          dnf_install: krb5-devel krb5-workstation

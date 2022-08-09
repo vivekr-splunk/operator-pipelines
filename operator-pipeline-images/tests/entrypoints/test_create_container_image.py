@@ -59,7 +59,7 @@ def test_create_container_image(
     args = MagicMock()
     args.pyxis_url = "https://catalog.redhat.com/api/containers/"
     args.isv_pid = "some_isv_pid"
-    args.registry = "some_registry"
+    args.environment = "prod"
     args.repository = "some_repo"
     args.docker_image_digest = "some_digest"
     args.bundle_version = "some_version"
@@ -76,19 +76,20 @@ def test_create_container_image(
             "repositories": [
                 {
                     "published": True,
-                    "registry": "some_registry",
+                    "registry": "registry.connect.redhat.com",
                     "repository": "some_repo",
                     "push_date": "1970-10-10T10:10:10.000000+00:00",
                     "tags": [
                         {
                             "added_date": "1970-10-10T10:10:10.000000+00:00",
-                            "name": "some_version-1",
+                            "name": "some_version",
                         }
                     ],
                 }
             ],
             "certified": True,
             "docker_image_digest": "some_digest",
+            "image_id": "some_digest",
             "architecture": "ok",
             "parsed_data": {"architecture": "ok"},
             "sum_layer_size_bytes": 1,
@@ -99,7 +100,7 @@ def test_create_container_image(
 @patch("operatorcert.entrypoints.create_container_image.pyxis.post")
 @patch("operatorcert.entrypoints.create_container_image.prepare_parsed_data")
 @patch("operatorcert.entrypoints.create_container_image.datetime")
-def test_create_container_image(
+def test_create_container_image_latest(
     mock_datetime: MagicMock, mock_prepare_parsed: MagicMock, mock_post: MagicMock
 ):
     # Arrange
@@ -112,7 +113,7 @@ def test_create_container_image(
     args = MagicMock()
     args.pyxis_url = "https://catalog.redhat.com/api/containers/"
     args.isv_pid = "some_isv_pid"
-    args.registry = "some_registry"
+    args.environment = "prod"
     args.repository = "some_repo"
     args.docker_image_digest = "some_digest"
     args.bundle_version = "some_version"
@@ -130,13 +131,13 @@ def test_create_container_image(
             "repositories": [
                 {
                     "published": True,
-                    "registry": "some_registry",
+                    "registry": "registry.connect.redhat.com",
                     "repository": "some_repo",
                     "push_date": "1970-10-10T10:10:10.000000+00:00",
                     "tags": [
                         {
                             "added_date": "1970-10-10T10:10:10.000000+00:00",
-                            "name": "some_version-1",
+                            "name": "some_version",
                         },
                         {
                             "added_date": "1970-10-10T10:10:10.000000+00:00",
@@ -147,6 +148,7 @@ def test_create_container_image(
             ],
             "certified": True,
             "docker_image_digest": "some_digest",
+            "image_id": "some_digest",
             "architecture": "ok",
             "parsed_data": {"architecture": "ok"},
             "sum_layer_size_bytes": 1,

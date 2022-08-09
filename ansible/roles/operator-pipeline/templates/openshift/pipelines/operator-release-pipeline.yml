@@ -18,40 +18,75 @@ spec:
       description: URL to the pull request
     - name: is_latest
       description: If explicitly set to "true", resulting image will be tagged as "latest"
-    - name: registry
-      description: temporary registry used by Hosted pipeline to pass the image to Release pipeline.
+    - name: src_registry
+      description: Source registry for the bundle image.
       default: quay.io
-    - name: image_namespace
-      description: The namespace/organization where images from Hosted pipeline are stored.
+    - name: dest_registry
+      description: Destination registry for the bundle image.
+      default: quay.io
+    - name: src_image_namespace
+      description: The namespace/organization where the bundle image from the Hosted pipeline is stored.
       default: $(context.pipelineRun.namespace)
+    - name: dest_image_namespace
+      description: The namespace/organization where the bundle image will be copied/released.
     - name: env
       description: Which environment to run in. Can be one of [dev, qa, stage, prod]
       default: "prod"
     - name: pipeline_image
       description: An image of operator-pipeline-images.
-      default: "quay.io/redhat-isv/operator-pipelines-images:v1.0.7"
+      default: "quay.io/redhat-isv/operator-pipelines-images:released"
+    - name: metrics_endpoint
+      description: Prometheus metrics endpoint
+      default: http://pipeline-metrics.pipeline-metrics-prod
+    # Kubernetes secrets related params, usually with default values
     - name: github_token_secret_name
       description: The name of the Kubernetes Secret that contains the GitHub token.
       default: github-bot-token
     - name: github_token_secret_key
       description: The key within the Kubernetes Secret that contains the GitHub token.
       default: github_bot_token
-    - name: ibm_webhook_token_secret_name
-      description: The name of the Kubernetes Secret that contains the IBM webhook token.
-      default: ibm-webhook-token
-    - name: ibm_webhook_token_secret_key
-      description: The key within the Kubernetes Secret that contains the IBM webhook token.
-      default: token
+    - name: pyxis_ssl_secret_name
+      description: Kubernetes secret name that contains the Pyxis SSL files.
+      default: operator-pipeline-api-certs
+    - name: pyxis_ssl_cert_secret_key
+      description: The key within the Kubernetes secret that contains the Pyxis SSL cert.
+      default: operator-pipeline.pem
+    - name: pyxis_ssl_key_secret_key
+      description: The key within the Kubernetes secret that contains the Pyxis SSL key.
+      default: operator-pipeline.key
+    - name: ocp_registry_kubeconfig_secret_name
+      description: >-
+        The name of the Kubernetes Secret that contains the kubeconfig for service account
+        allowing connection with cluster that contains the ocp registries.
+      default: ocp-registry-kubeconfig
+    - name: ocp_registry_kubeconfig_secret_key
+      description: >-
+        The key within the Kubernetes Secret that contains the kubeconfig for service
+        account allowing connection with cluster that contains the ocp registries.
+      default: kubeconfig
+    - name: kerberos_keytab_secret_name
+      description: >-
+        The name of the Kubernetes Secret that contains the kerberos keytab for submitting IIB builds.
+      default: kerberos-keytab
+    - name: kerberos_keytab_secret_key
+      description: >-
+        The key within the Kubernetes Secret that contains the kerberos keytab for submitting IIB builds.
+      default: krb5.keytab
+    - name: signing_pub_secret_name
+      description: The name of the Kubernetes Secret that contains the public key for verifying signatures.
+      default: signing-pub-key
+    - name: signing_pub_secret_key
+      description: The key within the Kubernetes Secret that contains the public key for verifying signatures.
+      default: sig-key.pub
   workspaces:
     - name: repository
     - name: results
     - name: ssh-dir
       optional: true
-    - name: pyxis-ssl-credentials
-    - name: kerberos-keytab
-    - name: registry-credentials
+    - name: registry-pull-credentials
+    - name: registry-push-credentials
+    - name: registry-serve-credentials
     - name: image-data
-    - name: ocp-registry-kubeconfig
 
   tasks:
     # Set a pending GitHub status check first to provide the user with immeditate feedback.
@@ -225,13 +260,13 @@ spec:
           value: "$(tasks.certification-project-check.results.certification_project_id)"
         - name: pyxis_url
           value: "$(tasks.set-env.results.pyxis_url)"
-        - name: pyxis_cert_path
-          value: $(workspaces.pyxis-ssl-credentials.path)/operator-pipeline.pem
-        - name: pyxis_key_path
-          value: $(workspaces.pyxis-ssl-credentials.path)/operator-pipeline.key
+        - name: pyxis_ssl_secret_name
+          value: "$(params.pyxis_ssl_secret_name)"
+        - name: pyxis_ssl_cert_secret_key
+          value: "$(params.pyxis_ssl_cert_secret_key)"
+        - name: pyxis_ssl_key_secret_key
+          value: "$(params.pyxis_ssl_key_secret_key)"
       workspaces:
-        - name: pyxis-ssl-credentials
-          workspace: pyxis-ssl-credentials
         - name: source
           workspace: repository
           subPath: src
@@ -250,13 +285,12 @@ spec:
           value: "$(tasks.get-cert-project-related-data.results.org_id)"
         - name: pyxis_url
           value: "$(tasks.set-env.results.pyxis_url)"
-        - name: pyxis_cert_path
-          value: $(workspaces.pyxis-ssl-credentials.path)/operator-pipeline.pem
-        - name: pyxis_key_path
-          value: $(workspaces.pyxis-ssl-credentials.path)/operator-pipeline.key
-      workspaces:
-        - name: pyxis-ssl-credentials
-          workspace: pyxis-ssl-credentials
+        - name: pyxis_ssl_secret_name
+          value: "$(params.pyxis_ssl_secret_name)"
+        - name: pyxis_ssl_cert_secret_key
+          value: "$(params.pyxis_ssl_cert_secret_key)"
+        - name: pyxis_ssl_key_secret_key
+          value: "$(params.pyxis_ssl_key_secret_key)"
 
     - name: inspect-image
       runAfter:
@@ -266,14 +300,58 @@ spec:
         kind: Task
       params:
         - name: image
-          value: &bundleImage "$(params.registry)/$(params.image_namespace)/$(tasks.bundle-path-validation.results.package_name):$(tasks.bundle-path-validation.results.bundle_version)"
+          value: &srcBundleImage "$(params.src_registry)/$(params.src_image_namespace)/$(tasks.bundle-path-validation.results.package_name):$(tasks.bundle-path-validation.results.bundle_version)"
         - name: registry
-          value: $(params.registry)
+          value: $(params.src_registry)
       workspaces:
         - name: registry-credentials
-          workspace: registry-credentials
+          workspace: registry-pull-credentials
         - name: image-data
           workspace: image-data
+
+    - name: copy-bundle-image-to-released-registry
+      runAfter:
+        - get-vendor-related-data
+      taskRef:
+        name: copy-image
+      params:
+        - name: src_image
+          value: *srcBundleImage
+        - name: dest_image
+          value: &destBundleImage "$(params.dest_registry)/$(params.dest_image_namespace)/$(tasks.certification-project-check.results.certification_project_id):$(tasks.bundle-path-validation.results.bundle_version)"
+      workspaces:
+        - name: src-registry-credentials
+          workspace: registry-pull-credentials
+        - name: dest-registry-credentials
+          workspace: registry-push-credentials
+
+    - name: set-cert-project-repository
+      runAfter:
+        - copy-bundle-image-to-released-registry
+      taskRef:
+        name: set-cert-project-repository
+      params:
+        - name: pipeline_image
+          value: "$(params.pipeline_image)"
+        - name: cert_project_id
+          value: "$(tasks.certification-project-check.results.certification_project_id)"
+        - name: registry
+          value: "$(params.dest_registry)"
+        - name: repository
+          value: "$(params.dest_image_namespace)/$(tasks.certification-project-check.results.certification_project_id)"
+        - name: docker_config_file_name
+          value: ".dockerconfigjson"
+        - name: pyxis_url
+          value: "$(tasks.set-env.results.pyxis_url)"
+        - name: pyxis_ssl_secret_name
+          value: "$(params.pyxis_ssl_secret_name)"
+        - name: pyxis_ssl_cert_secret_key
+          value: "$(params.pyxis_ssl_cert_secret_key)"
+        - name: pyxis_ssl_key_secret_key
+          value: "$(params.pyxis_ssl_key_secret_key)"
+      workspaces:
+        - name: registry-credentials
+          workspace: registry-serve-credentials
 
     # Publish image to OCP registry
     - name: publish-to-ocp-registry
@@ -289,50 +367,22 @@ spec:
         - name: repository_name
           value: "$(tasks.get-cert-project-related-data.results.repo_name)"
         - name: image
-          value: *bundleImage
+          value: *srcBundleImage
         - name: is_latest
           value: "$(params.is_latest)"
         - name: bundle_version
           value: "$(tasks.bundle-path-validation.results.bundle_version)"
         - name: connect_registry
           value: "$(tasks.set-env.results.connect_registry)"
-      workspaces:
-        - name: ocp-registry-kubeconfig
-          workspace: ocp-registry-kubeconfig
-
-    # Trigger IBM webhook for marketplace replication
-    - name: trigger-marketplace-replication
-      runAfter:
-        - publish-to-ocp-registry
-        - get-supported-versions
-        - bundle-path-validation
-      taskRef:
-        name: trigger-marketplace-replication
-      params:
-        - name: bundle_path
-          value: "$(tasks.get-bundle-path.results.bundle_path)"
-        - name: ibm_webhook_token_secret_name
-          value: "$(params.ibm_webhook_token_secret_name)"
-        - name: ibm_webhook_token_secret_key
-          value: "$(params.ibm_webhook_token_secret_key)"
-        - name: package
-          value: "$(tasks.bundle-path-validation.results.package_name)"
-        - name: pipeline_image
-          value: "$(params.pipeline_image)"
-        - name: ocp_version
-          value: "$(tasks.get-supported-versions.results.ocp_version)"
-        - name: organization
-          value: "$(tasks.get-organization.results.organization)"
-        - name: version
-          value: "$(tasks.bundle-path-validation.results.bundle_version)"
-      workspaces:
-        - name: source
-          workspace: repository
-          subPath: src
+        - name: ocp_registry_kubeconfig_secret_name
+          value: "$(params.ocp_registry_kubeconfig_secret_name)"
+        - name: ocp_registry_kubeconfig_secret_key
+          value: "$(params.ocp_registry_kubeconfig_secret_key)"
 
     # create container image
     - name: create-container-image
       runAfter:
+        - set-cert-project-repository
         - publish-to-ocp-registry
         - inspect-image
       taskRef:
@@ -340,6 +390,8 @@ spec:
       params:
         - name: pipeline_image
           value: "$(params.pipeline_image)"
+        - name: environment
+          value: "$(params.env)"
         - name: isv_pid
           value: "$(tasks.get-cert-project-related-data.results.isv_pid)"
         - name: repository
@@ -348,17 +400,17 @@ spec:
           value: "$(tasks.publish-to-ocp-registry.results.container_digest)"
         - name: pyxis_url
           value: "$(tasks.set-env.results.pyxis_url)"
-        - name: pyxis_cert_path
-          value: $(workspaces.pyxis-ssl-credentials.path)/operator-pipeline.pem
-        - name: pyxis_key_path
-          value: $(workspaces.pyxis-ssl-credentials.path)/operator-pipeline.key
+        - name: pyxis_ssl_secret_name
+          value: "$(params.pyxis_ssl_secret_name)"
+        - name: pyxis_ssl_cert_secret_key
+          value: "$(params.pyxis_ssl_cert_secret_key)"
+        - name: pyxis_ssl_key_secret_key
+          value: "$(params.pyxis_ssl_key_secret_key)"
         - name: bundle_version
           value: "$(tasks.bundle-path-validation.results.bundle_version)"
         - name: is_latest
           value: "$(params.is_latest)"
       workspaces:
-        - name: pyxis-ssl-credentials
-          workspace: pyxis-ssl-credentials
         - name: image-data
           workspace: image-data
 
@@ -366,7 +418,12 @@ spec:
     - name: publish-bundle
       runAfter:
         - create-container-image
-        - trigger-marketplace-replication
+        - get-supported-versions
+      when: &whenNotUndistributed
+        - input: &operatorDistribution "$(tasks.get-cert-project-related-data.results.operator_distribution)"
+          operator: notin
+          values:
+            - undistributed
       taskRef:
         name: publish-bundle
       params:
@@ -377,14 +434,98 @@ spec:
         - name: bundle_pullspec
           value: "$(tasks.publish-to-ocp-registry.results.image_pullspec)"
         - name: operator_distribution_method
-          value: "$(tasks.get-cert-project-related-data.results.operator_distribution)"
+          value: *operatorDistribution
         - name: iib_url
           value: "$(tasks.set-env.results.iib_url)"
         - name: environment
           value: "$(params.env)"
+        - name: kerberos_keytab_secret_name
+          value: "$(params.kerberos_keytab_secret_name)"
+        - name: kerberos_keytab_secret_key
+          value: "$(params.kerberos_keytab_secret_key)"
+
+    # use manifest list digests from IIB output and get the manifest digests from registry
+    - name: get-manifest-digests
+      runAfter:
+        - publish-bundle
+      when: *whenNotUndistributed
+      taskRef:
+        name: get-manifest-digests
+      params:
+        - name: pipeline_image
+          value: "$(params.pipeline_image)"
+        - name: manifest_list_digests
+          value: "$(tasks.publish-bundle.results.manifest_list_digests)"
+        - name: environment
+          value: "$(params.env)"
       workspaces:
-        - name: kerberos-keytab
-          workspace: kerberos-keytab
+        - name: registry-credentials
+          workspace: registry-pull-credentials
+
+    # send UMB message for RADAS to sign the container image
+    - name: request-signature
+      runAfter:
+        - get-manifest-digests
+      when: *whenNotUndistributed
+      taskRef:
+        name: request-signature
+      params:
+        - name: pipeline_image
+          value: "$(params.pipeline_image)"
+        - name: manifest_digest
+          value: "$(tasks.get-manifest-digests.results.manifest_digests)"
+        - name: reference
+          value: "$(tasks.get-manifest-digests.results.docker_references)"
+        - name: requester
+          value: "amisstea"
+        - name: sig_key_id
+          value: "$(tasks.set-env.results.sig_key_id)"
+        - name: sig_key_name
+          value: "$(tasks.set-env.results.sig_key_name)"
+        - name: umb_ssl_secret_name
+          value: "$(params.pyxis_ssl_secret_name)"
+        - name: umb_ssl_cert_secret_key
+          value: "$(params.pyxis_ssl_cert_secret_key)"
+        - name: umb_ssl_key_secret_key
+          value: "$(params.pyxis_ssl_key_secret_key)"
+        - name: umb_client_name
+          value: "$(tasks.set-env.results.umb_client_name)"
+        - name: umb_url
+          value: "$(tasks.set-env.results.umb_url)"
+      workspaces:
+        - name: source
+          workspace: repository
+          subPath: signing
+
+    - name: upload-signature
+      runAfter:
+        - request-signature
+      when: *whenNotUndistributed
+      taskRef:
+        name: upload-signature
+      params:
+        - name: pipeline_image
+          value: "$(params.pipeline_image)"
+        - name: signature_data_file
+          value: "$(tasks.request-signature.results.signature_data_file)"
+        - name: pyxis_ssl_secret_name
+          value: "$(params.pyxis_ssl_secret_name)"
+        - name: pyxis_ssl_cert_secret_key
+          value: "$(params.pyxis_ssl_cert_secret_key)"
+        - name: pyxis_ssl_key_secret_key
+          value: "$(params.pyxis_ssl_key_secret_key)"
+        - name: pyxis_url
+          value: "$(tasks.set-env.results.pyxis_url)"
+        - name: signing_pub_secret_name
+          value: "$(params.signing_pub_secret_name)"
+        - name: signing_pub_secret_key
+          value: "$(params.signing_pub_secret_key)"
+        - name: verify_signature
+          value: "true"
+      workspaces:
+        - name: source
+          workspace: repository
+          subPath: signing
 
     # Publish Vendor, Repository
     - name: publish-resources
@@ -401,15 +542,14 @@ spec:
           value: "$(tasks.get-cert-project-related-data.results.org_id)"
         - name: pyxis_url
           value: "$(tasks.set-env.results.pyxis_url)"
-        - name: pyxis_cert_path
-          value: $(workspaces.pyxis-ssl-credentials.path)/operator-pipeline.pem
-        - name: pyxis_key_path
-          value: $(workspaces.pyxis-ssl-credentials.path)/operator-pipeline.key
+        - name: pyxis_ssl_secret_name
+          value: "$(params.pyxis_ssl_secret_name)"
+        - name: pyxis_ssl_cert_secret_key
+          value: "$(params.pyxis_ssl_cert_secret_key)"
+        - name: pyxis_ssl_key_secret_key
+          value: "$(params.pyxis_ssl_key_secret_key)"
         - name: environment
           value: "$(params.env)"
-      workspaces:
-        - name: pyxis-ssl-credentials
-          workspace: pyxis-ssl-credentials
 
   finally:
 
@@ -419,9 +559,6 @@ spec:
     - name: upload-pipeline-logs
       taskRef:
         name: upload-pipeline-logs
-      workspaces:
-        - name: pyxis-ssl-credentials
-          workspace: pyxis-ssl-credentials
       params:
         - name: pipeline_image
           value: "$(params.pipeline_image)"
@@ -431,16 +568,25 @@ spec:
           value: "$(tasks.certification-project-check.results.certification_project_id)"
         - name: bundle_version
           value: "$(tasks.bundle-path-validation.results.bundle_version)"
+        - name: git_pr_url
+          value: $(params.git_pr_url)
         - name: package_name
           value: "$(tasks.bundle-path-validation.results.package_name)"
         - name: pyxis_url
           value: "$(tasks.set-env.results.pyxis_url)"
         - name: pipeline_name
+          value: "$(context.pipeline.name)"
+        - name: pipelinerun_name
           value: "$(context.pipelineRun.name)"
-        - name: pyxis_cert_path
-          value: $(workspaces.pyxis-ssl-credentials.path)/operator-pipeline.pem
-        - name: pyxis_key_path
-          value: $(workspaces.pyxis-ssl-credentials.path)/operator-pipeline.key
+        - name: pyxis_ssl_secret_name
+          value: "$(params.pyxis_ssl_secret_name)"
+        - name: pyxis_ssl_cert_secret_key
+          value: "$(params.pyxis_ssl_cert_secret_key)"
+        - name: pyxis_ssl_key_secret_key
+          value: "$(params.pyxis_ssl_key_secret_key)"
+      workspaces:
+        - name: source
+          workspace: repository
 
     # In the event of a failure, comment with the support link on the github PR
     - name: github-add-support-comment
@@ -451,9 +597,11 @@ spec:
       taskRef:
         name: github-add-comment
       params:
+        - name: pipeline_image
+          value: "$(params.pipeline_image)"
         - name: REQUEST_URL
           value: "$(params.git_pr_url)"
-        - name: COMMENT_OR_FILE
+        - name: COMMENT
           value: "There were errors while publishing your Operator bundle. You can use [this support case]($(tasks.create-support-link-for-pr.results.comment)) to contact the Red Hat certification team for review."
         - name: GITHUB_TOKEN_SECRET_NAME
           value: "$(params.github_token_secret_name)"
@@ -475,18 +623,17 @@ spec:
           value: "$(tasks.certification-project-check.results.certification_project_id)"
         - name: pyxis_url
           value: "$(tasks.set-env.results.pyxis_url)"
-        - name: pyxis_cert_path
-          value: $(workspaces.pyxis-ssl-credentials.path)/operator-pipeline.pem
-        - name: pyxis_key_path
-          value: $(workspaces.pyxis-ssl-credentials.path)/operator-pipeline.key
+        - name: pyxis_ssl_secret_name
+          value: "$(params.pyxis_ssl_secret_name)"
+        - name: pyxis_ssl_cert_secret_key
+          value: "$(params.pyxis_ssl_cert_secret_key)"
+        - name: pyxis_ssl_key_secret_key
+          value: "$(params.pyxis_ssl_key_secret_key)"
           # The project is always published if this is executing
         - name: new_certification_status
           value: "Published"
         - name: current_certification_status
           value: "$(tasks.get-cert-project-related-data.results.current_certification_status)"
-      workspaces:
-        - name: pyxis-ssl-credentials
-          workspace: pyxis-ssl-credentials
 
     - name: set-github-status-success
       taskRef:
@@ -508,15 +655,13 @@ spec:
           value: success
         - name: context
           value: "operator/publish"
-        - name: target_url
-          value: "$(tasks.set-env.results.connect_url)/projects/$(tasks.certification-project-check.results.certification_project_id)/test-results"
         - name: github_token_secret_name
           value: "$(params.github_token_secret_name)"
         - name: github_token_secret_key
           value: "$(params.github_token_secret_key)"
 
-    # Set the github status to failure with details link if the pipeline didn't pass.
-    - name: set-github-status-failure-with-link
+    # Set the github status to failure if the pipeline didn't pass.
+    - name: set-github-status-failure
       taskRef:
         name: set-github-status
       when:
@@ -525,47 +670,6 @@ spec:
           values:
             - Succeeded
             - Completed
-        - input: "$(tasks.certification-project-check.status)"
-          operator: in
-          values:
-            - Succeeded
-      params:
-        - name: pipeline_image
-          value: "$(params.pipeline_image)"
-        - name: git_repo_url
-          value: $(params.git_repo_url)
-        - name: commit_sha
-          value: $(params.git_commit)
-        - name: description
-          value: "Failed to publish the Operator bundle."
-        - name: state
-          value: failure
-        - name: context
-          value: "operator/publish"
-        - name: target_url
-          value: "$(tasks.set-env.results.connect_url)/projects/$(tasks.certification-project-check.results.certification_project_id)/test-results"
-        - name: github_token_secret_name
-          value: "$(params.github_token_secret_name)"
-        - name: github_token_secret_key
-          value: "$(params.github_token_secret_key)"
-
-    # Set the github status to failure without details link if the pipeline didn't pass.
-    # The "Details" link on the GitHub status cannot be generated without a success from
-    # the certification-project-check PipelineTask. This ensures the status is always set
-    # to false regardless where the failure occurred.
-    - name: set-github-status-failure-without-link
-      taskRef:
-        name: set-github-status
-      when:
-        - input: "$(tasks.status)"
-          operator: notin
-          values:
-            - Succeeded
-            - Completed
-        - input: "$(tasks.certification-project-check.status)"
-          operator: notin
-          values:
-            - Succeeded
       params:
         - name: pipeline_image
           value: "$(params.pipeline_image)"
@@ -603,3 +707,17 @@ spec:
         - name: output
           workspace: results
           subPath: summary
+
+    # Submit a pipeline metrics to a collector
+    - name: update-metrics
+      taskRef:
+        name: update-metrics
+      params:
+        - name: pipelinerun
+          value: "$(context.pipelineRun.name)"
+        - name: metrics_url
+          value: "$(params.metrics_endpoint)"
+      workspaces:
+        - name: output
+          workspace: results
+          subPath: metrics

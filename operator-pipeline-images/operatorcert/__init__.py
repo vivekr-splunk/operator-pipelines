@@ -2,12 +2,14 @@ import json
 import logging
 import pathlib
 import re
+from datetime import datetime, timezone
 from urllib.parse import urljoin
 from typing import Dict, List, Optional, Tuple
 
-import requests
 import yaml
+from dateutil.parser import isoparse
 
+from operatorcert import github
 from operatorcert import pyxis
 from operatorcert.utils import find_file, store_results
 
@@ -15,9 +17,7 @@ from operatorcert.utils import find_file, store_results
 OCP_VERSIONS_ANNOTATION = "com.redhat.openshift.versions"
 PACKAGE_ANNOTATION = "operators.operatorframework.io.bundle.package.v1"
 
-# ClusterServiceVersion annotations & properties
-OLM_PROPS_ANNOTATION = "olm.properties"
-MAX_OCP_VERSION_PROPERTY = "olm.maxOpenShiftVersion"
+LOGGER = logging.getLogger("operator-cert")
 
 
 def get_bundle_annotations(bundle_path: pathlib.Path) -> Dict:
@@ -66,26 +66,10 @@ def get_csv_content(bundle_path: pathlib.Path, package: str) -> Dict:
         return yaml.safe_load(fh)
 
 
-def get_csv_annotations(bundle_path: pathlib.Path, package: str) -> Dict:
-    """
-    Gets all the annotations from the bundle CSV
-
-    Args:
-        bundle_path (Path): A path to the bundle version
-        package (str): Operator package name
-
-    Returns:
-        A dict of all the annotation keys and values
-    """
-    content = get_csv_content(bundle_path, package)
-    return content.get("metadata", {}).get("annotations", {})
-
-
 def get_supported_indices(
     pyxis_url: str,
     ocp_versions_range: str,
     organization: str,
-    max_ocp_version: str = None,
 ) -> List[str]:
     """
     Gets all the known supported OCP indices for this bundle.
@@ -94,7 +78,6 @@ def get_supported_indices(
         pyxis_url (str): Base URL to Pyxis
         ocp_versions_range (str): OpenShift version annotation
         organization (str): Organization of the index (e.g. "certified-operators")
-        max_ocp_version (str): OLM property in the bundle CSV
 
     Returns:
         A list of supported OCP versions in descending order
@@ -102,8 +85,6 @@ def get_supported_indices(
     url = urljoin(pyxis_url, "v1/operators/indices")
 
     filter_ = f"organization=={organization}"
-    if max_ocp_version:
-        filter_ += f";ocp_version=le={max_ocp_version}"
 
     # Ignoring pagination. 500 OCP versions would be a lot for a single
     # version of an operator to support.
@@ -112,10 +93,10 @@ def get_supported_indices(
         "ocp_versions_range": ocp_versions_range,
         "page_size": 500,
         "sort_by": "ocp_version[desc]",
-        "include": "data.ocp_version,data.path",
+        "include": "data.ocp_version,data.path,data.end_of_life",
     }
 
-    rsp = requests.get(url, params=params)
+    rsp = pyxis.get(url, params=params, auth_required=False)
     rsp.raise_for_status()
     return rsp.json()["data"]
 
@@ -145,27 +126,26 @@ def ocp_version_info(
     if not package:
         raise ValueError(f"'{PACKAGE_ANNOTATION}' annotation not defined")
 
-    csv_annotations = get_csv_annotations(bundle_path, package)
-
-    olm_props_content = csv_annotations.get(OLM_PROPS_ANNOTATION, "[]")
-    olm_props = json.loads(olm_props_content)
-
-    max_ocp_version = None
-    for prop in olm_props:
-        if prop.get("type") == MAX_OCP_VERSION_PROPERTY:
-            max_ocp_version = str(prop["value"])
-            break
-
-    indices = get_supported_indices(
-        pyxis_url, ocp_versions_range, organization, max_ocp_version=max_ocp_version
-    )
+    indices = get_supported_indices(pyxis_url, ocp_versions_range, organization)
 
     if not indices:
         raise ValueError("No supported indices found")
 
+    # Raise an error if any of the supported OCP versions have reached their EOL
+    now = datetime.now(timezone.utc)
+    for index in indices:
+        eol = index.get("end_of_life")
+        if not eol:
+            continue
+
+        eol_datetime = isoparse(eol).astimezone(timezone.utc)
+        if eol_datetime <= now:
+            raise ValueError(
+                f"OpenShift {index['ocp_version']} has reached its end of life"
+            )
+
     return {
         "versions_annotation": ocp_versions_range,
-        "max_version_property": max_ocp_version,
         "indices": indices,
         "max_version_index": indices[0],
     }
@@ -215,14 +195,13 @@ def get_files_added_in_pr(
         f"https://api.github.com/repos/{organization}/{repository}"
         f"/compare/{base_branch}...{pr_head_label}"
     )
-    rsp = requests.get(compare_changes_url)
-    rsp.raise_for_status()
+    comparison = github.get(compare_changes_url, auth_required=False)
 
     added_files = []
     modified_files = []
     allowed_files = []
 
-    for file in rsp.json().get("files", []):
+    for file in comparison.get("files", []):
         if file["status"] == "added":
             added_files.append(file["filename"])
         else:
@@ -235,7 +214,7 @@ def get_files_added_in_pr(
     if modified_files:
         for modified_file in modified_files:
             if not modified_file["filename"].endswith("ci.yaml"):
-                logging.error(
+                LOGGER.error(
                     f"Change not permitted: file: {modified_file['filename']}, status: {modified_file['status']}"
                 )
                 raise RuntimeError("There are changes done to previously merged files")
@@ -257,7 +236,7 @@ def verify_changed_files_location(
     path = parent_path + "/" + bundle_version
     config_path = parent_path + "/ci.yaml"
 
-    logging.info(
+    LOGGER.info(
         f"Changes for operator {operator_name} in version {bundle_version}"
         f" are expected to be in paths: \n"
         f" {path}/* \n"
@@ -267,9 +246,9 @@ def verify_changed_files_location(
     wrong_changes = False
     for file_path in changed_files:
         if file_path.startswith(path) or file_path == config_path:
-            logging.info(f"Permitted change: {file_path}")
+            LOGGER.info(f"Permitted change: {file_path}")
         else:
-            logging.error(f"Unpermitted change: {file_path}")
+            LOGGER.error(f"Unpermitted change: {file_path}")
             wrong_changes = True
 
     if wrong_changes:
@@ -304,7 +283,7 @@ def validate_user(git_username: str, contacts: List[str]):
             f"User {git_username} doesn't have permissions to submit the bundle."
         )
     else:
-        logging.info(f"User {git_username} has permission to submit the bundle.")
+        LOGGER.info(f"User {git_username} has permission to submit the bundle.")
 
 
 def verify_pr_uniqueness(
@@ -322,9 +301,7 @@ def verify_pr_uniqueness(
 
     for repo in available_repositories:
         # List the open PRs in the given repositories,
-        rsp = requests.get(base_url + repo + "/pulls")
-        rsp.raise_for_status()
-        prs = rsp.json()
+        prs = github.get(base_url + repo + "/pulls", auth_required=False)
 
         # find duplicates
         duplicate_prs = []
@@ -344,11 +321,11 @@ def verify_pr_uniqueness(
 
         # Log duplicates and exit with error
         if duplicate_prs:
-            logging.error(
+            LOGGER.error(
                 f"There is more than one pull request for the Operator Bundle {base_pr_bundle_name}"
             )
             for duplicate in duplicate_prs:
-                logging.error(f"DUPLICATE: {duplicate}")
+                LOGGER.error(f"DUPLICATE: {duplicate}")
             raise RuntimeError("Multiple pull requests for one Operator Bundle")
 
 
@@ -375,7 +352,7 @@ def download_test_results(args) -> Optional[str]:
     query_results = rsp.json()["data"]
 
     if len(query_results) == 0:
-        logging.error(f"There is no test results for given parameters")
+        LOGGER.error(f"There is no test results for given parameters")
         return None
 
     # Get needed data from the query result
@@ -394,5 +371,5 @@ def download_test_results(args) -> Optional[str]:
     with open(file_path, "w") as file:
         file.write(result)
 
-    logging.info(f"Test results retrieved successfully for given parameters")
+    LOGGER.info(f"Test results retrieved successfully for given parameters")
     return query_results[0]["_id"]

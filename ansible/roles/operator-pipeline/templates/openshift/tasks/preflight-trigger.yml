@@ -4,6 +4,15 @@ metadata:
   name: preflight-trigger
 spec:
   params:
+    - name: fedora_image
+      description: Fedora image
+      default: "docker.io/library/fedora"
+    - name: go_toolset_image
+      description: GO toolset image
+      default: "registry.access.redhat.com/ubi8/go-toolset"
+    - name: preflight_trigger_image
+      description: Preflight trigger image
+      default: "quay.io/opdev/preflight-trigger"
     - default: '4.9'
       name: ocp_version
       type: string
@@ -16,9 +25,19 @@ spec:
       type: string
     - name: asset_type
       type: string
-    - default: 'false'
+    - name: gpg_decryption_key_secret_name
+      description: The name of the Kubernetes Secret that contains the gpg decryption key.
+    - name: gpg_decryption_private_key_secret_key
+      description: The key within the Kubernetes Secret that contains the gpg private key.
+    - name: gpg_decryption_public_key_secret_key
+      description: The key within the Kubernetes Secret that contains the gpg public key.
+    - name: prow_kubeconfig_secret_name
+      description: The name of the Kubernetes Secret that contains the prow kubeconfig.
+    - name: prow_kubeconfig_secret_key
+      description: The key within the Kubernetes Secret that contains the prow kubeconfig.
+    - name: skip
       description: "Set to 'true' to skip"
-      name: skip
+      default: 'false'
       type: string
   results:
     - description: ''
@@ -27,15 +46,26 @@ spec:
       name: result_output_file
     - description: ''
       name: artifacts_output_dir
+  volumes:
+    - name: kubeconfig-volume
+      secret:
+        secretName: "$(params.prow_kubeconfig_secret_name)"
+    - name: gpg-key-volume
+      secret:
+        secretName: "$(params.gpg_decryption_key_secret_name)"
   steps:
     - env:
         - name: PIPELINE_GPG_DECRYPTION_PRIVATE_KEY
-          value: $(workspaces.gpg-decryption-key.path)/private
+          value: /etc/gpg-key/$(params.gpg_decryption_private_key_secret_key)
         - name: PIPELINE_GPG_DECRYPTION_PUBLIC_KEY
-          value: $(workspaces.gpg-decryption-key.path)/public
-      image: docker.io/library/fedora
+          value: /etc/gpg-key/$(params.gpg_decryption_public_key_secret_key)
+      image: "$(params.fedora_image)"
       name: encrypt-and-encode-docker-config-json
       resources: {}
+      volumeMounts:
+        - name: gpg-key-volume
+          readOnly: true
+          mountPath: "/etc/gpg-key"
       script: |
           #!/usr/bin/env bash
 
@@ -57,7 +87,7 @@ spec:
               gpg --encrypt --sign --armor -r "$(gpg --list-keys|grep -B1 'Preflight Trigger'|awk 'NR==1 { print }'|tr -d '[:space:]')" -o- "$(workspaces.credentials.path)/project_dockerconfigjson" | basenc --base16 -w0 > "$(workspaces.credentials.path)/project_dockerconfigjson.gpg.b16"
           fi
       workingDir: $(workspaces.output.path)
-    - image: registry.access.redhat.com/ubi8/go-toolset
+    - image: "$(params.go_toolset_image)"
       name: clone-openshift-release-for-configs
       resources: {}
       script: |
@@ -73,16 +103,29 @@ spec:
       workingDir: $(workspaces.output.path)
     - env:
         - name: KUBECONFIG
-          value: $(workspaces.kubeconfig.path)/kubeconfig
-      image: quay.io/opdev/preflight-trigger
+          value: /etc/kubeconfig-volume/$(params.prow_kubeconfig_secret_key)
+      image: "$(params.preflight_trigger_image)"
       name: create-openshift-ci-prowjob
       resources: {}
+      volumeMounts:
+        - name: kubeconfig-volume
+          readOnly: true
+          mountPath: "/etc/kubeconfig-volume"
       script: |
           #!/usr/bin/env sh
 
           if [ "$(params.skip)" == "true" ]; then
               echo "Preflight testing has been skipped"
               exit 0
+          fi
+
+          DPTP_VER="4.9"
+          CP_VER="$(params.ocp_version)"
+
+          if [ "$(printf '%s\n' "$DPTP_VER" "$CP_VER" | sort -V | head -n1)" = "$DPTP_VER" ]; then
+              OCP_VER="${DPTP_VER}"
+          else
+              OCP_VER="${CP_VER}"
           fi
 
           if [ "$(params.ocp_version)" == "4.6" ] || [ "$(params.ocp_version)" == "4.7" ]; then
@@ -99,10 +142,10 @@ spec:
               export PFLT_DOCKERCONFIG
 
               preflight-trigger \
-          -job-name "periodic-ci-redhat-openshift-ecosystem-preflight-ocp-$(params.ocp_version)-preflight-common-${JOB_SUFFIX}" \
-          -job-config-path "release/ci-operator/jobs/redhat-openshift-ecosystem/preflight/redhat-openshift-ecosystem-preflight-ocp-$(params.ocp_version)-periodics.yaml" \
+          -job-name "periodic-ci-redhat-openshift-ecosystem-preflight-ocp-${OCP_VER}-preflight-common-${JOB_SUFFIX}" \
+          -job-config-path "release/ci-operator/jobs/redhat-openshift-ecosystem/preflight/redhat-openshift-ecosystem-preflight-ocp-${OCP_VER}-periodics.yaml" \
           -prow-config-path release/core-services/prow/02_config/_config.yaml \
-          -ocp-version "$(params.ocp_version)" \
+          -ocp-version "${OCP_VER}" \
           -pflt-docker-config "${PFLT_DOCKERCONFIG}" \
           -pflt-artifacts artifacts \
           -pflt-log-level "$(params.log_level)" \
@@ -112,10 +155,10 @@ spec:
           -output-path prowjob-base-url
           else
               preflight-trigger \
-          -job-name "periodic-ci-redhat-openshift-ecosystem-preflight-ocp-$(params.ocp_version)-preflight-common-${JOB_SUFFIX}" \
-          -job-config-path "release/ci-operator/jobs/redhat-openshift-ecosystem/preflight/redhat-openshift-ecosystem-preflight-ocp-$(params.ocp_version)-periodics.yaml" \
+          -job-name "periodic-ci-redhat-openshift-ecosystem-preflight-ocp-${OCP_VER}-preflight-common-${JOB_SUFFIX}" \
+          -job-config-path "release/ci-operator/jobs/redhat-openshift-ecosystem/preflight/redhat-openshift-ecosystem-preflight-ocp-${OCP_VER}-periodics.yaml" \
           -prow-config-path release/core-services/prow/02_config/_config.yaml \
-          -ocp-version "$(params.ocp_version)" \
+          -ocp-version "${OCP_VER}" \
           -pflt-artifacts artifacts \
           -pflt-log-level "$(params.log_level)" \
           -pflt-index-image "$(params.bundle_index_image)" \
@@ -126,12 +169,16 @@ spec:
       workingDir: $(workspaces.output.path)
     - env:
         - name: PIPELINE_GPG_DECRYPTION_PRIVATE_KEY
-          value: $(workspaces.gpg-decryption-key.path)/private
+          value: /etc/gpg-key/$(params.gpg_decryption_private_key_secret_key)
         - name: PIPELINE_GPG_DECRYPTION_PUBLIC_KEY
-          value: $(workspaces.gpg-decryption-key.path)/public
-      image: docker.io/library/fedora
+          value: /etc/gpg-key/$(params.gpg_decryption_public_key_secret_key)
+      image: "$(params.fedora_image)"
       name: get-prowjob-artifacts-and-decrypt
       resources: {}
+      volumeMounts:
+        - name: gpg-key-volume
+          readOnly: true
+          mountPath: "/etc/gpg-key"
       script: |
           #!/usr/bin/env bash
 
@@ -143,6 +190,15 @@ spec:
             exit 0
           fi
 
+          DPTP_VER="4.9"
+          CP_VER="$(params.ocp_version)"
+
+          if [ "$(printf '%s\n' "$DPTP_VER" "$CP_VER" | sort -V | head -n1)" = "$DPTP_VER" ]; then
+              OCP_VER="${DPTP_VER}"
+          else
+              OCP_VER="${CP_VER}"
+          fi
+
           if [ "$(params.ocp_version)" == "4.6" ] || [ "$(params.ocp_version)" == "4.7" ]; then
               JOB_SUFFIX="aws"
           else
@@ -152,7 +208,7 @@ spec:
           BASE_URL="https://gcsweb-ci.apps.ci.l2s4.p1.openshiftapps.com/gcs/origin-ci-test/logs/"
           PROWJOB_URL=$(awk '/prowjob_url/ { gsub(/"/, ""); print $2 }' prowjob-base-url)
           PROWJOB_ID=${PROWJOB_URL##*/}
-          ARTIFACTS_TARBALL_URI="${BASE_URL}periodic-ci-redhat-openshift-ecosystem-preflight-ocp-$(params.ocp_version)-preflight-common-${JOB_SUFFIX}/${PROWJOB_ID}/artifacts/preflight-common-${JOB_SUFFIX}/operator-pipelines-preflight-common-encrypt/artifacts/preflight.tar.gz.asc"
+          ARTIFACTS_TARBALL_URI="${BASE_URL}periodic-ci-redhat-openshift-ecosystem-preflight-ocp-${OCP_VER}-preflight-common-${JOB_SUFFIX}/${PROWJOB_ID}/artifacts/preflight-common-${JOB_SUFFIX}/operator-pipelines-preflight-common-encrypt/artifacts/preflight.tar.gz.asc"
 
           curl -sLO "${ARTIFACTS_TARBALL_URI}"
 
@@ -174,6 +230,4 @@ spec:
       workingDir: $(workspaces.output.path)
   workspaces:
     - name: output
-    - name: kubeconfig
-    - name: gpg-decryption-key
     - name: credentials

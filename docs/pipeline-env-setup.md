@@ -10,8 +10,38 @@
 
 ## Common for all the pipelines:
 
+### Red Hat Catalog Imagestreams
+
+The pipelines must pull the parent index images through the internal OpenShift
+registry to take advantage of the built-in credentials for Red Hat's terms-based
+registry (registry.redhat.io). This saves the user from needing to provide such
+credentials. The index generation task will always pull published index images
+through imagestreams of the same name in the current namespace. As a result,
+there is a one time configuration for each desired distribution catalog. Replace
+the `from` argument when configuring this for pre-production environments.
+
+```bash
+# Must be run once before certifying against the certified catalog.
+oc --request-timeout 10m import-image certified-operator-index \
+  --from=registry.redhat.io/redhat/certified-operator-index \
+  --reference-policy local \
+  --scheduled \
+  --confirm \
+  --all
+
+# Must be run once before certifying against the Red Hat Marketplace catalog.
+oc --request-timeout 10m import-image redhat-marketplace-index \
+  --from=registry.redhat.io/redhat/redhat-marketplace-index \
+  --reference-policy local \
+  --scheduled \
+  --confirm \
+  --all
+```
+
+## Only CI pipeline:
+
 ### Registry Credentials
-The pipelines can optionally be configured to push and pull images to/from a remote
+The CI pipeline can optionally be configured to push and pull images to/from a remote
 private registry. The user must create an auth secret containing the docker config.
 This secret can then be passed as a workspace named `registry-credentials` when invoking
 the pipeline.
@@ -21,35 +51,6 @@ oc create secret generic registry-dockerconfig-secret \
   --type kubernetes.io/dockerconfigjson \
   --from-file .dockerconfigjson=config.json
 ```
-
-### Red Hat Catalog Imagestreams
-
-The pipelines must pull the parent index images through the internal OpenShift
-registry to take advantage of the built-in credentials for Red Hat's terms-based
-registry (registry.redhat.io). This saves the user from needing to provide such
-credentials. The index generation task will always pull published index images
-through imagestreams of the same name in the current namespace. As a result,
-there is a one time configuration for each desired distribution catalog.
-
-```bash
-# Must be run once before certifying against the certified catalog.
-oc import-image certified-operator-index \
-  --from=registry.redhat.io/redhat/certified-operator-index \
-  --reference-policy local \
-  --scheduled \
-  --confirm \
-  --all
-
-# Must be run once before certifying against the Red Hat Marketplace catalog.
-oc import-image redhat-marketplace-index \
-  --from=registry.redhat.io/redhat/redhat-marketplace-index \
-  --reference-policy local \
-  --scheduled \
-  --confirm \
-  --all
-```
-
-## Only CI pipeline:
 
 ### Git SSH Secret
 The pipelines requires git SSH credentials with 
@@ -101,6 +102,18 @@ oc create secret generic github-api-token --from-literal GITHUB_TOKEN=< GITHUB T
 ```
 
 ## Only Hosted pipeline:
+
+### Registry Credentials
+The hosted pipeline requires credentials to push/pull bundle and index images from a
+pre-release registry (quay.io). A registry auth secret must be created. This secret
+can then be passed as a workspace named `registry-credentials` when invoking
+the pipeline.
+
+```bash
+oc create secret generic hosted-pipeline-registry-auth-secret \
+  --type kubernetes.io/dockerconfigjson \
+  --from-file .dockerconfigjson=config.json
+```
 
 ### Container API access
 The hosted pipeline communicates with internal Container API that requires cert + key.
@@ -168,6 +181,28 @@ oc create secret generic quay-oauth-token --from-literal token=<token>
 
 ## Only Release pipeline:
 
+### Registry Credentials
+The release pipeline requires credentials to push and pull the bundle image built by
+the hosted pipeline. Three registry auth secrets must be specified since different
+credentials may be required for the same registry when copying and serving the image.
+These secrets can then be passed as workspaces named `registry-pull-credentials`,
+`registry-push-credentials` and `registry-serve-credentials` when invoking the
+pipeline.
+
+```bash
+oc create secret generic release-pipeline-registry-auth-pull-secret \
+  --type kubernetes.io/dockerconfigjson \
+  --from-file .dockerconfigjson=pull-config.json
+
+oc create secret generic release-pipeline-registry-auth-push-secret \
+  --type kubernetes.io/dockerconfigjson \
+  --from-file .dockerconfigjson=push-config.json
+
+oc create secret generic release-pipeline-registry-auth-serve-secret \
+  --type kubernetes.io/dockerconfigjson \
+  --from-file .dockerconfigjson=serve-config.json
+```
+
 ### Kerberos credentials
 For submitting the IIB build, you need kerberos keytab in a secret:
 ```bash
@@ -196,10 +231,3 @@ oc create secret generic ocp-registry-kubeconfig \
 
 Additional setup instructions for this cluster are documented [here](rhc4tp-cluster.md).
 
-### IBM webhook token
-The Release pipeline needs to call an IBM webhook to trigger marketplace replication. To
-authenticate with the webhook, a token is needed.
-
-```bash
-oc create secret generic ibm-webhook-token --from-literal token=< TOKEN >
-```

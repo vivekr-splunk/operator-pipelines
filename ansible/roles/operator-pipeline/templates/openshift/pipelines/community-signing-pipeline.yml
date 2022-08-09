@@ -1,0 +1,134 @@
+---
+apiVersion: tekton.dev/v1beta1
+kind: Pipeline
+metadata:
+  name: community-signing-pipeline
+spec:
+  params:
+    - name: env
+      description: Which environment to run in. Can be one of [dev, qa, stage, prod]
+      default: "dev"
+    - name: pipeline_image
+      description: An image of operator-pipeline-images.
+      default: "quay.io/redhat-isv/operator-pipelines-images:released"
+    - name: manifest_digest
+      description: Manifest digest for the signed content, usually in the format sha256:xxx
+    - name: reference
+      description: Docker reference for the signed content, e.g. registry.redhat.io/redhat/community-operator-index:v4.9
+    - name: requester
+      description: Name of the user that requested the signing, for auditing purposes
+    - name: ssl_cert_secret_name
+      default: community-operator-signing-pipeline-certs
+    - name: ssl_cert_secret_key
+      default: community-operator-signing-pipeline.pem
+    - name: ssl_key_secret_key
+      default: community-operator-signing-pipeline.key
+    - name: umb_client_name
+      default: community-operator-signing-pipeline
+    - name: metrics_endpoint
+      description: Prometheus metrics endpoint
+      default: http://pipeline-metrics.pipeline-metrics-prod
+    - name: signing_pub_secret_name
+      description: The name of the Kubernetes Secret that contains the public key for verifying signatures.
+      default: signing-pub-key
+    - name: signing_pub_secret_key
+      description: The key within the Kubernetes Secret that contains the public key for verifying signatures.
+      default: sig-key.pub
+  workspaces:
+    - name: pipeline
+  tasks:
+    - name: verify-whitelisted-index-image
+      taskref:
+        name: verify-whitelisted-index-image
+        kind: Task
+      params:
+        - name: reference
+          value: $(params.reference)
+
+    - name: set-env
+      taskRef:
+        name: set-env
+        kind: Task
+      runAfter:
+        - verify-whitelisted-index-image
+      params:
+        - name: env
+          value: $(params.env)
+        - name: access_type
+          value: "internal"
+
+    - name: request-signature
+      taskRef:
+        name: request-signature
+        kind: Task
+      runAfter:
+        - set-env
+      params:
+        - name: pipeline_image
+          value: "$(params.pipeline_image)"
+        - name: manifest_digest
+          value: "$(params.manifest_digest)"
+        - name: reference
+          value: "$(params.reference)"
+        - name: requester
+          value: "$(params.requester)"
+        - name: sig_key_id
+          value: "$(tasks.set-env.results.sig_key_id)"
+        - name: sig_key_name
+          value: "$(tasks.set-env.results.sig_key_name)"
+        - name: umb_ssl_secret_name
+          value: "$(params.ssl_cert_secret_name)"
+        - name: umb_ssl_cert_secret_key
+          value: "$(params.ssl_cert_secret_key)"
+        - name: umb_ssl_key_secret_key
+          value: "$(params.ssl_key_secret_key)"
+        - name: umb_client_name
+          value: "$(params.umb_client_name)"
+        - name: umb_url
+          value: "$(tasks.set-env.results.umb_url)"
+      workspaces:
+        - name: source
+          workspace: pipeline
+          subPath: signing
+
+    - name: upload-signature
+      taskRef:
+        name: upload-signature
+        kind: Task
+      runAfter:
+        - request-signature
+      params:
+        - name: pipeline_image
+          value: "$(params.pipeline_image)"
+        - name: signature_data_file
+          value: "$(tasks.request-signature.results.signature_data_file)"
+        - name: pyxis_ssl_secret_name
+          value: "$(params.ssl_cert_secret_name)"
+        - name: pyxis_ssl_cert_secret_key
+          value: "$(params.ssl_cert_secret_key)"
+        - name: pyxis_ssl_key_secret_key
+          value: "$(params.ssl_key_secret_key)"
+        - name: pyxis_url
+          value: "$(tasks.set-env.results.pyxis_url)"
+        - name: signing_pub_secret_name
+          value: "$(params.signing_pub_secret_name)"
+        - name: signing_pub_secret_key
+          value: "$(params.signing_pub_secret_key)"
+      workspaces:
+        - name: source
+          workspace: pipeline
+          subPath: signing
+  finally:
+    # Submit a pipeline metrics to a collector
+    - name: update-metrics
+      taskRef:
+        name: update-metrics
+      params:
+        - name: pipelinerun
+          value: "$(context.pipelineRun.name)"
+        - name: metrics_url
+          value: "$(params.metrics_endpoint)"
+      workspaces:
+        - name: output
+          workspace: pipeline
+          subPath: metrics

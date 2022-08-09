@@ -2,7 +2,8 @@ import argparse
 import logging
 from urllib.parse import urljoin
 
-from operatorcert import github, get_repo_and_org_from_github_url
+from operatorcert import get_repo_and_org_from_github_url, github
+from operatorcert.logger import setup_logger
 
 LOGGER = logging.getLogger("operator-cert")
 
@@ -20,10 +21,6 @@ def setup_argparser() -> argparse.ArgumentParser:  # pragma: no cover
     parser.add_argument(
         "--git-repo-url",
         help="URL of the git repo",
-    )
-    parser.add_argument(
-        "--target-url",
-        help="The target_url for further details",
     )
     parser.add_argument("--commit-sha", help="SHA of the commit to set status for")
     parser.add_argument(
@@ -47,7 +44,6 @@ def set_github_status(args) -> None:
         "context": args.context,
         "description": args.description,
         "state": args.status,
-        "target_url": args.target_url,
     }
     github.post(
         urljoin(
@@ -70,7 +66,7 @@ def main() -> None:
     log_level = "INFO"
     if args.verbose:
         log_level = "DEBUG"
-    logging.basicConfig(level=log_level)
+    setup_logger(level=log_level)
 
     set_github_status(args)
 

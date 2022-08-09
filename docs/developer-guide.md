@@ -14,7 +14,7 @@
 1. [Prepare a development environment](#prepare-a-development-environment)
 1. [Prepare a certification project](#prepare-a-certification-project)
 1. [Prepare an Operator bundle](#prepare-an-operator-bundle)
-1. [Prepare your `ci.yaml`](#prepare-your-ci.yaml)
+1. [Prepare your `ci.yaml`](#prepare-your-ciyaml)
 1. [Create a bundle pull request](#create-a-bundle-pull-request) (optional)
     - Required for testing hosted or release pipelines
 1. [Create an API key](#create-an-api-key) (optional)
@@ -27,7 +27,7 @@
 You may use any OpenShift 4.7+ cluster (including [CodeReady Containers](#using-codeready-containers)).
 
 The hosted and release pipelines require a considerable amount of dependencies which
-are tedious to [configure manually](docs/pipeline-env-setup.sh). Luckily these
+are tedious to [configure manually](pipeline-env-setup.md). Luckily these
 steps have been automated and can be executed by anyone with access to the Ansible
 vault password.
 
@@ -38,7 +38,7 @@ selecting `copy login command`.
 
 ```bash
 # Assuming the current working directory is ansible/
-./init-custom-env.sh $PROJECT $ENVIRONMENT $PASSWD_FILE
+./init-custom-env.sh $PROJECT $ENVIRONMENT $PASSWD_FILE [$PIPELINE_IMAGE_TAG]
 ```
 
 | Argument | Description |
@@ -46,6 +46,7 @@ selecting `copy login command`.
 | PROJECT | An OpenShift project name (eg. `john-playground`). Pipeline resources will be installed here. |
 | ENVIRONMENT | The environmental dependencies and corresponding credentials to leverage. Can be one of `dev`, `qa`, `stage` or `prod`. |
 | PASSWD_FILE | File path containing the ansible vault password. |
+| PIPELINE_IMAGE_TAG | The tag name of operator pipeline image. (optional) |
 
 :warning: Conflicts may occur if the project already contains some resources. They may need to be removed first.
 
@@ -109,10 +110,11 @@ The pipelines depend on the following certification project fields:
   "name": "<insert-project-name>",
 
   /*
-   Either "connect" or "marketplace".
+   Either "connect", "marketplace" or "undistributed".
    This maps to the `organization` field in the bundle submission repo's config.yaml.
      connect -> certified-operators
      marketplace -> redhat-marketplace
+     undistributed -> certified-operators (certified against, but not distributed to)
   */
   "operator_distribution": "<insert-distribution>",
 
@@ -121,6 +123,8 @@ The pipelines depend on the following certification project fields:
 
   "container": {
     "type": "operator bundle image",
+
+    "build_catagories":"Operator bundle",
 
     // Required but always "rhcc"
     "distribution_method": "rhcc",

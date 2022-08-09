@@ -34,6 +34,10 @@
                 value: "{{ env }}"
               - name: pipeline_image
                 value: "{{ operator_pipeline_image_pull_spec }}"
+              - name: metrics_endpoint
+                value: "{{ pipelines_metrics_endpoint }}"
+              - name: dest_image_namespace
+                value: "{{ operator_pipeline_release_namespace }}"
     - name: Create Release pipeline Trigger Template
       k8s:
         state: present
@@ -57,12 +61,15 @@
               - name: is_latest
               - name: env
               - name: pipeline_image
+              - name: metrics_endpoint
+              - name: dest_image_namespace
             resourcetemplates:
               - apiVersion: tekton.dev/v1beta1
                 kind: PipelineRun
                 metadata:
                   generateName: operator-release-pipeline-run
                 spec:
+                  timeout: "1h30m0s"
                   pipelineRef:
                     name: operator-release-pipeline
                   params:
@@ -82,6 +89,10 @@
                       value: $(tt.params.env)
                     - name: pipeline_image
                       value: $(tt.params.pipeline_image)
+                    - name: metrics_endpoint
+                      value: $(tt.params.metrics_endpoint)
+                    - name: dest_image_namespace
+                      value: $(tt.params.dest_image_namespace)
                   workspaces:
                     - name: repository
                       volumeClaimTemplate:
@@ -107,15 +118,12 @@
                           resources:
                             requests:
                               storage: 100Mi
-                    - name: pyxis-ssl-credentials
+                    - name: registry-pull-credentials
                       secret:
-                        secretName: "operator-pipeline-api-certs"
-                    - name: kerberos-keytab
+                        secretName: release-pipeline-registry-auth-pull-secret
+                    - name: registry-push-credentials
                       secret:
-                        secretName: "kerberos-keytab"
-                    - name: registry-credentials
+                        secretName: release-pipeline-registry-auth-push-secret
+                    - name: registry-serve-credentials
                       secret:
-                        secretName: "registry-dockerconfig-secret"
-                    - name: ocp-registry-kubeconfig
-                      secret:
-                        secretName: "ocp-registry-kubeconfig"
+                        secretName: release-pipeline-registry-auth-serve-secret

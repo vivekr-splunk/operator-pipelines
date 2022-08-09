@@ -1,3 +1,4 @@
+from datetime import timezone
 from pathlib import Path
 from unittest import mock
 from unittest.mock import patch, MagicMock, call
@@ -5,6 +6,8 @@ from typing import Dict
 
 import pytest
 import yaml
+from dateutil.parser import isoparse
+
 import operatorcert
 
 Bundle = Dict[str, Path]
@@ -44,6 +47,17 @@ def bundle(tmp_path: Path) -> Bundle:
     }
 
 
+def test_get_csv_content(bundle: Bundle) -> None:
+    bundle_root = bundle["root"]
+    content = operatorcert.get_csv_content(bundle_root, "foo-operator")
+    assert content.get("metadata", {}).get("annotations", {}) == {
+        "olm.properties": '[{"type": "olm.maxOpenShiftVersion", "value": "4.7"}]'
+    }
+    bundle["csv"].unlink()
+    with pytest.raises(RuntimeError):
+        operatorcert.get_csv_content(bundle_root, "foo-operator")
+
+
 def test_get_bundle_annotations(bundle: Bundle) -> None:
     bundle_root = bundle["root"]
     assert operatorcert.get_bundle_annotations(bundle_root) == {
@@ -55,45 +69,55 @@ def test_get_bundle_annotations(bundle: Bundle) -> None:
         operatorcert.get_bundle_annotations(bundle_root)
 
 
-def test_get_csv_annotations(bundle: Bundle) -> None:
-    bundle_root = bundle["root"]
-    assert operatorcert.get_csv_annotations(bundle_root, "foo-operator") == {
-        "olm.properties": '[{"type": "olm.maxOpenShiftVersion", "value": "4.7"}]'
-    }
-    bundle["csv"].unlink()
-    with pytest.raises(RuntimeError):
-        operatorcert.get_csv_annotations(bundle_root, "foo-operator")
-
-
-@patch("requests.get")
+@patch("operatorcert.pyxis.get")
 def test_get_supported_indices(mock_get: MagicMock) -> None:
     mock_rsp = MagicMock()
     mock_rsp.json.return_value = {"data": ["foo", "bar"]}
     mock_get.return_value = mock_rsp
 
     result = operatorcert.get_supported_indices(
-        "https://foo.bar", "4.6-4.8", "certified-operators", max_ocp_version="4.7"
+        "https://foo.bar", "4.6-4.8", "certified-operators"
     )
     assert result == ["foo", "bar"]
 
 
+@patch("operatorcert.datetime")
 @patch("operatorcert.get_supported_indices")
-def test_ocp_version_info(mock_indices: MagicMock, bundle: Bundle) -> None:
-    bundle_root = bundle["root"]
-    mock_indices.return_value = [{"ocp_version": "4.7", "path": "quay.io/foo:4.7"}]
+def test_ocp_version_info(
+    mock_indices: MagicMock, mock_datetime: MagicMock, bundle: Bundle
+) -> None:
+    timestamp = "2022-01-01T00:00:00.000000+00:00"
+    mock_datetime.now.return_value = isoparse(timestamp).astimezone(timezone.utc)
     organization = "certified-operators"
+    bundle_root = bundle["root"]
+
+    # Happy path
+    mock_indices.return_value = [{"ocp_version": "4.7", "path": "quay.io/foo:4.7"}]
     info = operatorcert.ocp_version_info(bundle_root, "", organization)
     assert info == {
         "versions_annotation": "4.6-4.8",
-        "max_version_property": "4.7",
         "indices": mock_indices.return_value,
         "max_version_index": mock_indices.return_value[0],
     }
 
+    # No supported indices found
     mock_indices.return_value = []
     with pytest.raises(ValueError):
         operatorcert.ocp_version_info(bundle_root, "", organization)
 
+    # Index EOL reached
+    mock_indices.return_value = [
+        {
+            "ocp_version": "4.7",
+            "path": "quay.io/foo:4.7",
+            "end_of_life": timestamp,
+        }
+    ]
+    with pytest.raises(ValueError) as err_info:
+        operatorcert.ocp_version_info(bundle_root, "", organization)
+    assert str(err_info.value) == "OpenShift 4.7 has reached its end of life"
+
+    # Missing version range annotation
     annotations = {
         "annotations": {
             "operators.operatorframework.io.bundle.package.v1": "foo-operator",
@@ -102,15 +126,23 @@ def test_ocp_version_info(mock_indices: MagicMock, bundle: Bundle) -> None:
     with bundle["annotations"].open("w") as fh:
         yaml.safe_dump(annotations, fh)
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError) as err_info:
         operatorcert.ocp_version_info(bundle_root, "", organization)
+    assert (
+        str(err_info.value) == "'com.redhat.openshift.versions' annotation not defined"
+    )
 
+    # Missing package name annotation
     annotations["annotations"] = {"com.redhat.openshift.versions": "4.6-4.8"}
     with bundle["annotations"].open("w") as fh:
         yaml.safe_dump(annotations, fh)
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError) as err_info:
         operatorcert.ocp_version_info(bundle_root, "", organization)
+    assert (
+        str(err_info.value)
+        == "'operators.operatorframework.io.bundle.package.v1' annotation not defined"
+    )
 
 
 def test_get_repo_and_org_from_github_url():
@@ -136,60 +168,57 @@ def test_get_repo_and_org_from_github_url():
         )
 
 
-@patch("requests.get")
+@patch("operatorcert.github.get")
 def test_get_files_added_in_pr(mock_get: MagicMock):
-    mock_rsp = MagicMock()
-    mock_rsp.json.return_value = {
+    mock_get.return_value = {
         "irrelevant_key": "abc",
         "files": [
             {"filename": "first", "status": "added"},
             {"filename": "second", "status": "added"},
         ],
     }
-    mock_get.return_value = mock_rsp
     files = operatorcert.get_files_added_in_pr(
         "rh", "operator-repo", "main", "user:fixup"
     )
     mock_get.assert_called_with(
-        "https://api.github.com/repos/rh/operator-repo/compare/main...user:fixup"
+        "https://api.github.com/repos/rh/operator-repo/compare/main...user:fixup",
+        auth_required=False,
     )
     assert files == ["first", "second"]
 
 
-@patch("requests.get")
+@patch("operatorcert.github.get")
 def test_get_files_added_in_pr_changed_files(mock_get: MagicMock):
-    mock_rsp = MagicMock()
-    mock_rsp.json.return_value = {
+    mock_get.return_value = {
         "irrelevant_key": "abc",
         "files": [
             {"filename": "first", "status": "deleted"},
             {"filename": "second", "status": "changed"},
         ],
     }
-    mock_get.return_value = mock_rsp
     with pytest.raises(RuntimeError):
         operatorcert.get_files_added_in_pr("rh", "operator-repo", "main", "user:fixup")
     mock_get.assert_called_with(
-        "https://api.github.com/repos/rh/operator-repo/compare/main...user:fixup"
+        "https://api.github.com/repos/rh/operator-repo/compare/main...user:fixup",
+        auth_required=False,
     )
 
 
-@patch("requests.get")
+@patch("operatorcert.github.get")
 def test_get_files_added_in_pr_changed_ci_yaml(mock_get: MagicMock):
-    mock_rsp = MagicMock()
-    mock_rsp.json.return_value = {
+    mock_get.return_value = {
         "irrelevant_key": "abc",
         "files": [
             {"filename": "ci.yaml", "status": "changed"},
         ],
     }
-    mock_get.return_value = mock_rsp
     files = operatorcert.get_files_added_in_pr(
         "rh", "operator-repo", "main", "user:fixup"
     )
 
     mock_get.assert_called_with(
-        "https://api.github.com/repos/rh/operator-repo/compare/main...user:fixup"
+        "https://api.github.com/repos/rh/operator-repo/compare/main...user:fixup",
+        auth_required=False,
     )
 
     assert files == ["ci.yaml"]
@@ -257,7 +286,7 @@ def test_parse_pr_title(pr_title: str, is_valid: bool, name: str, version: str):
             operatorcert.parse_pr_title(pr_title)
 
 
-@patch("requests.get")
+@patch("operatorcert.github.get")
 def test_verify_pr_uniqueness(mock_get: MagicMock):
     base_pr_url = "https://github.com/user/repo/pulls/1"
     pr_rsp = [
@@ -286,10 +315,7 @@ def test_verify_pr_uniqueness(mock_get: MagicMock):
         ],
     ]
 
-    mock_rsp = MagicMock()
-    mock_rsp.json.side_effect = pr_rsp
-
-    mock_get.return_value = mock_rsp
+    mock_get.side_effect = pr_rsp
 
     available_repositories = ["org1/repo_a", "org2/repo_b"]
     base_pr_bundle_name = "first"
@@ -301,11 +327,11 @@ def test_verify_pr_uniqueness(mock_get: MagicMock):
     pr_rsp[1].append(
         {"title": "operator first (1.2.4)", "html_url": base_pr_url.replace("1", "5")}
     )
-    mock_rsp.json.side_effect = pr_rsp
+    mock_get.side_effect = pr_rsp
 
     assert mock_get.call_args_list == [
-        call("https://api.github.com/repos/org1/repo_a/pulls"),
-        call("https://api.github.com/repos/org2/repo_b/pulls"),
+        call("https://api.github.com/repos/org1/repo_a/pulls", auth_required=False),
+        call("https://api.github.com/repos/org2/repo_b/pulls", auth_required=False),
     ]
 
     with pytest.raises(RuntimeError):

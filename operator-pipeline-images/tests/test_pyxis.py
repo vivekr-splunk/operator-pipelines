@@ -17,22 +17,52 @@ def test_is_internal(monkeypatch: Any) -> None:
 
 def test_get_session_api_key(monkeypatch: Any) -> None:
     monkeypatch.setenv("PYXIS_API_KEY", "123")
-    session = pyxis._get_session()
+    session = pyxis._get_session("test")
 
     assert session.headers["X-API-KEY"] == "123"
 
 
-def test_get_session_cert(monkeypatch: Any) -> None:
+def test_get_session_proxy(monkeypatch: Any) -> None:
+    monkeypatch.setenv("PYXIS_API_KEY", "123")
+    session = pyxis._get_session("test-qa")
+
+    assert session.proxies == {
+        "http": "http://squid.corp.redhat.com:3128",
+        "https": "http://squid.corp.redhat.com:3128",
+    }
+
+
+@patch("os.path.exists")
+def test_get_session_cert(mock_path_exists: MagicMock, monkeypatch: Any) -> None:
+    mock_path_exists.return_value = True
     monkeypatch.setenv("PYXIS_CERT_PATH", "/path/to/cert.pem")
     monkeypatch.setenv("PYXIS_KEY_PATH", "/path/to/key.key")
-    session = pyxis._get_session()
+    session = pyxis._get_session("test")
 
     assert session.cert == ("/path/to/cert.pem", "/path/to/key.key")
 
 
-def test_get_session_no_auth(monkeypatch: Any) -> None:
+@patch("os.path.exists")
+def test_get_session_cert_not_exist(
+    mock_path_exists: MagicMock, monkeypatch: Any
+) -> None:
+    mock_path_exists.return_value = False
+    monkeypatch.setenv("PYXIS_CERT_PATH", "/path/to/cert.pem")
+    monkeypatch.setenv("PYXIS_KEY_PATH", "/path/to/key.key")
+
     with pytest.raises(Exception):
-        pyxis._get_session()
+        pyxis._get_session("test")
+
+
+def test_get_session_no_auth() -> None:
+    session = pyxis._get_session("test", auth_required=False)
+    assert session.cert is None
+    assert session.headers.get("X-API-KEY") is None
+
+
+def test_get_session_no_credentials(monkeypatch: Any) -> None:
+    with pytest.raises(Exception):
+        pyxis._get_session("test")
 
 
 @patch("operatorcert.pyxis._get_session")

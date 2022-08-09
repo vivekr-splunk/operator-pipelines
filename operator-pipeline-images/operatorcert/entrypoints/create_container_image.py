@@ -6,7 +6,7 @@ import logging
 from typing import Any, Dict, List
 from urllib.parse import urljoin
 
-from operatorcert import pyxis
+from operatorcert import pyxis, utils
 from operatorcert.logger import setup_logger
 
 LOGGER = logging.getLogger("operator-cert")
@@ -37,9 +37,10 @@ def setup_argparser() -> Any:  # pragma: no cover
         required=True,
     )
     parser.add_argument(
-        "--registry",
-        help="Certification Project Registry",
-        default="registry.connect.redhat.com",
+        "--environment",
+        help="Environment where a tool runs",
+        choices=["prod", "stage", "dev", "qa"],
+        default="dev",
     )
     parser.add_argument(
         "--repository",
@@ -125,26 +126,26 @@ def create_container_image(
     parsed_data = prepare_parsed_data(skopeo_result)
 
     upload_url = urljoin(args.pyxis_url, f"v1/images")
+    registry = utils.get_registry_for_env(args.environment)
     container_image_payload = {
         "isv_pid": args.isv_pid,
         "repositories": [
             {
                 "published": True,
-                "registry": args.registry,
+                "registry": registry,
                 "repository": args.repository,
                 "push_date": date_now,
                 "tags": [
                     {
                         "added_date": date_now,
-                        # suffix -1 is added to indicate,
-                        # that it's non- floating tag
-                        "name": args.bundle_version + "-1",
+                        "name": args.bundle_version,
                     },
                 ],
             }
         ],
         "certified": True,
         "docker_image_digest": args.docker_image_digest,
+        "image_id": args.docker_image_digest,
         "architecture": parsed_data["architecture"],
         "parsed_data": parsed_data,
         "sum_layer_size_bytes": int(podman_result[0]["Size"]),
@@ -208,7 +209,7 @@ def main():  # pragma: no cover
     parser = setup_argparser()
     args = parser.parse_args()
     log_level = "DEBUG" if args.verbose else "INFO"
-    setup_logger(log_level)
+    setup_logger(level=log_level)
 
     with open(args.skopeo_result) as json_file:
         skopeo_result = json.load(json_file)
